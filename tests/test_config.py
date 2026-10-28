@@ -15,11 +15,10 @@ def test_missing_file_creates_persistent_sample(tmp_path):
     path = tmp_path / "nested" / "macros.json"
     manager = ConfigManager(path)
     assert path.exists()
-    assert [m["id"] for t in manager.snapshot()["tabs"] for m in t["macros"]] == [
-        "hello",
-        "email",
-        "form",
-    ]
+    tabs = manager.snapshot()["tabs"]
+    assert [t["label"] for t in tabs] == list("あかさたなはまやらわ")
+    assert all(t["macros"] for t in tabs)
+    assert tabs[0]["macros"][0]["id"] == "hello"
     assert ConfigManager(path).snapshot() == manager.snapshot()
 
 
@@ -166,11 +165,11 @@ def test_each_tab_is_limited_to_one_hundred_macros(tmp_path):
     "ignored",
     [None, {"invalid": "not a tab"}, {"id": "bad", "label": "Bad", "macros": [{"invalid": True}]}],
 )
-def test_fourth_and_later_tabs_are_ignored_without_losing_uploaded_bytes(tmp_path, ignored):
+def test_eleventh_and_later_tabs_are_ignored_without_losing_uploaded_bytes(tmp_path, ignored):
     path = tmp_path / "macros.json"
     manager = ConfigManager(path)
     config = manager.snapshot()
-    config["tabs"].append({"id": "empty", "label": "空", "macros": []})
+    assert len(config["tabs"]) == 10
     visible = manager.parse(encode(config))
     config["tabs"].extend([ignored, {"id": "also-ignored"}])
     raw = encode(config)
@@ -194,22 +193,28 @@ def test_empty_tab_and_no_tabs_are_valid(tmp_path):
 def test_visible_tab_limit_can_be_changed_in_one_place(tmp_path, monkeypatch):
     manager = ConfigManager(tmp_path / "macros.json")
     config = manager.snapshot()
-    config["tabs"].extend(
-        [
-            {"id": "third", "label": "3", "macros": []},
-            {
-                "id": "fourth",
-                "label": "4",
-                "macros": [
-                    {"id": "hidden", "label": "4", "steps": [{"type": "key", "value": "A"}]}
-                ],
-            },
-        ]
+    config["tabs"].append(
+        {
+            "id": "eleventh",
+            "label": "11",
+            "macros": [{"id": "hidden", "label": "11", "steps": [{"type": "key", "value": "A"}]}],
+        }
     )
     raw = encode(config)
     manager.import_bytes(raw)
     assert manager.get_macro("hidden") is None
-    monkeypatch.setattr("app.config_manager.MAX_VISIBLE_TABS", 4)
+    monkeypatch.setattr("app.config_manager.MAX_VISIBLE_TABS", 11)
     manager.import_bytes(raw)
-    assert len(manager.snapshot()["tabs"]) == 4
+    assert len(manager.snapshot()["tabs"]) == 11
     assert manager.get_macro("hidden")["id"] == "hidden"
+
+
+@pytest.mark.parametrize("index", [3, 9])
+def test_newly_visible_tabs_are_validated(tmp_path, index):
+    manager = ConfigManager(tmp_path / "macros.json")
+    before = manager.export_bytes()
+    config = manager.snapshot()
+    config["tabs"][index]["macros"][0]["steps"] = [{"type": "text", "value": "かな"}]
+    with pytest.raises(ValidationError, match=rf"tabs\[{index}\]"):
+        manager.import_bytes(encode(config))
+    assert manager.export_bytes() == before

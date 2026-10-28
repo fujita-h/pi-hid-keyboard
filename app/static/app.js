@@ -9,6 +9,14 @@ const fileInput = document.querySelector("#file");
 const importButton = document.querySelector("#import");
 const csrf = document.querySelector('meta[name="csrf-token"]').content;
 const inputOnly = document.body.classList.contains("input-only");
+const inputTabLabels = ["あ", "か", "さ", "た", "な", "は", "ま", "や", "ら", "わ"];
+const portrait = window.matchMedia("(orientation: portrait)");
+
+function updateTabOrientation() {
+  tabBar?.setAttribute("aria-orientation", portrait.matches ? "vertical" : "horizontal");
+}
+portrait.addEventListener("change", updateTabOrientation);
+updateTabOrientation();
 let localBusy = false;
 let remoteBusy = false;
 let ready = false;
@@ -98,7 +106,8 @@ function renderMacros(macros) {
   }
   const empty = document.querySelector("#empty");
   empty.hidden = macros.length !== 0;
-  if (!macroTabs.length) empty.textContent = "登録されているタブがありません。";
+  if (!inputOnly) empty.textContent = "マクロがありません。JSON設定をインポートしてください。";
+  else if (!macroTabs.length) empty.textContent = "登録されているタブがありません。";
   else empty.textContent = "このタブにマクロはありません。";
   const count = document.querySelector("#macro-count");
   if (count) count.textContent = `${macros.length} 件`;
@@ -124,6 +133,10 @@ async function loadMacros() {
   macroTabs = data.tabs;
   activeTab = -1;
   tabScrollPositions.clear();
+  if (!inputOnly) {
+    renderMacros(macroTabs.flatMap(tab => tab.macros).slice(0, 12));
+    return;
+  }
   tabBar.replaceChildren();
   tabBar.hidden = macroTabs.length === 0;
   macroPanel.removeAttribute("aria-labelledby");
@@ -132,14 +145,15 @@ async function loadMacros() {
     button.type = "button";
     button.className = "macro-tab";
     button.id = `macro-tab-${index}`;
-    button.textContent = tab.label;
+    button.textContent = inputTabLabels[index];
+    button.title = tab.label;
     button.setAttribute("role", "tab");
     button.setAttribute("aria-controls", "macro-panel");
     button.addEventListener("click", () => selectTab(index));
     button.addEventListener("keydown", (event) => {
       let next;
-      if (event.key === "ArrowRight") next = (index + 1) % macroTabs.length;
-      else if (event.key === "ArrowLeft") next = (index - 1 + macroTabs.length) % macroTabs.length;
+      if (event.key === (portrait.matches ? "ArrowDown" : "ArrowRight")) next = (index + 1) % macroTabs.length;
+      else if (event.key === (portrait.matches ? "ArrowUp" : "ArrowLeft")) next = (index - 1 + macroTabs.length) % macroTabs.length;
       else if (event.key === "Home") next = 0;
       else if (event.key === "End") next = macroTabs.length - 1;
       else return;

@@ -144,10 +144,13 @@ def test_index_macros_status_and_security_headers(client, headers):
     assert response.headers["X-Frame-Options"] == "DENY"
     assert "no-store" in response.headers["Cache-Control"]
     assert "script-src 'self'" in response.headers["Content-Security-Policy"]
+    assert b'role="tablist"' not in response.data
+    assert b'role="tabpanel"' not in response.data
     tabs = client.get("/api/macros", headers=headers).json["tabs"]
-    assert [t["id"] for t in tabs] == ["common", "forms"]
+    assert [t["label"] for t in tabs] == list("あかさたなはまやらわ")
     macros = [m for tab in tabs for m in tab["macros"]]
-    assert [m["id"] for m in macros] == ["hello", "email", "form"]
+    assert [m["id"] for m in macros[:3]] == ["hello", "email", "form"]
+    assert len(macros) == 19
     assert "steps" not in macros[0]
     assert client.get("/api/status", headers=headers).json["busy"] is False
 
@@ -185,7 +188,7 @@ def test_hundred_macros_preserve_json_order_and_only_expose_button_metadata(clie
                 for i in reversed(range(100))
             ],
         }
-        for n in (2, 1, 0)
+        for n in reversed(range(10))
     ]
     app.extensions["config_manager"].import_bytes(json.dumps({"version": 1, "tabs": tabs}).encode())
     response = client.get("/api/macros", headers=headers)
@@ -203,13 +206,12 @@ def test_hundred_macros_preserve_json_order_and_only_expose_button_metadata(clie
     }
 
 
-def test_fourth_tab_is_preserved_in_export_but_not_listed_or_executable(
+def test_eleventh_tab_is_preserved_in_export_but_not_listed_or_executable(
     client, headers, app, keyboard
 ):
     tabs = app.extensions["config_manager"].snapshot()["tabs"]
     tabs.extend(
         [
-            {"id": "third", "label": "空のタブ", "macros": []},
             {
                 "id": "ignored",
                 "label": "非表示",
@@ -224,15 +226,14 @@ def test_fourth_tab_is_preserved_in_export_but_not_listed_or_executable(
         "/api/config/import", headers=headers, data={"file": (io.BytesIO(raw), "tabs.json")}
     )
     assert response.status_code == 200
-    assert response.json == {"ok": True, "count": 3, "tab_count": 3}
+    assert response.json == {"ok": True, "count": 19, "tab_count": 10}
     assert [t["id"] for t in client.get("/api/macros", headers=headers).json["tabs"]] == [
-        "common",
-        "forms",
-        "third",
+        t["id"] for t in tabs[:10]
     ]
     assert client.get("/api/config/export", headers=headers).data == raw
     assert client.post("/api/macros/hidden/execute", headers=headers).status_code == 404
-    assert client.post("/api/macros/form/execute", headers=headers).status_code == 200
+    assert client.post("/api/macros/ta-1/execute", headers=headers).status_code == 200
+    assert client.post("/api/macros/wa-2/execute", headers=headers).status_code == 200
     assert keyboard.reports
 
 

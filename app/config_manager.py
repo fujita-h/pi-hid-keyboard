@@ -12,7 +12,7 @@ from app.macro_executor import MacroCompiler, ValidationError
 
 MAX_CONFIG_BYTES = 256 * 1024
 # The API exposes only these tabs, so the browser needs no separate limit.
-MAX_VISIBLE_TABS = 3
+MAX_VISIBLE_TABS = 10
 MAX_MACROS_PER_TAB = 100
 SAMPLE_PATH = Path(__file__).resolve().parent.parent / "data" / "macros.example.json"
 

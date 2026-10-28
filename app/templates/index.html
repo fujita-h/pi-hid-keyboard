@@ -22,10 +22,9 @@
         <h2 id="macros-title">定型入力</h2>
         <div class="view-switch"><span id="macro-count"></span><a href="{{ url_for('input_page') }}" class="secondary">入力専用画面</a></div>
       </div>
-      <div id="tabs" class="tab-bar" role="tablist" aria-label="マクログループ"></div>
-      <div id="macro-panel" class="macro-content" role="tabpanel" tabindex="0">
+      <div id="macro-panel">
         <div id="macros" class="grid" aria-busy="true"></div>
-        <p id="empty" hidden>このタブにマクロはありません。JSON設定をインポートしてください。</p>
+        <p id="empty" hidden>マクロがありません。JSON設定をインポートしてください。</p>
       </div>
     </section>
     <p id="message" class="message" role="status" aria-live="polite">マクロを読み込み中…</p>

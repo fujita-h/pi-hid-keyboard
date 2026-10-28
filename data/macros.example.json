@@ -2,8 +2,8 @@
   "version": 1,
   "tabs": [
     {
-      "id": "common",
-      "label": "定型文",
+      "id": "tab-a",
+      "label": "あ",
       "macros": [
         {
           "id": "hello",
@@ -32,8 +32,8 @@
       ]
     },
     {
-      "id": "forms",
-      "label": "フォーム",
+      "id": "tab-ka",
+      "label": "か",
       "macros": [
         {
           "id": "form",
@@ -69,6 +69,214 @@
             {
               "type": "key",
               "value": "ENTER"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "tab-sa",
+      "label": "さ",
+      "macros": [
+        {
+          "id": "sa-1",
+          "label": "Sample",
+          "steps": [
+            {
+              "type": "text",
+              "value": "Sample"
+            }
+          ]
+        },
+        {
+          "id": "sa-2",
+          "label": "See you",
+          "steps": [
+            {
+              "type": "text",
+              "value": "See you"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "tab-ta",
+      "label": "た",
+      "macros": [
+        {
+          "id": "ta-1",
+          "label": "Thank you",
+          "steps": [
+            {
+              "type": "text",
+              "value": "Thank you"
+            }
+          ]
+        },
+        {
+          "id": "ta-2",
+          "label": "Test",
+          "steps": [
+            {
+              "type": "text",
+              "value": "Test"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "tab-na",
+      "label": "な",
+      "macros": [
+        {
+          "id": "na-1",
+          "label": "Name",
+          "steps": [
+            {
+              "type": "text",
+              "value": "Name"
+            }
+          ]
+        },
+        {
+          "id": "na-2",
+          "label": "Next",
+          "steps": [
+            {
+              "type": "text",
+              "value": "Next"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "tab-ha",
+      "label": "は",
+      "macros": [
+        {
+          "id": "ha-1",
+          "label": "Hello",
+          "steps": [
+            {
+              "type": "text",
+              "value": "Hello"
+            }
+          ]
+        },
+        {
+          "id": "ha-2",
+          "label": "Help",
+          "steps": [
+            {
+              "type": "text",
+              "value": "Help"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "tab-ma",
+      "label": "ま",
+      "macros": [
+        {
+          "id": "ma-1",
+          "label": "Mail",
+          "steps": [
+            {
+              "type": "text",
+              "value": "Mail"
+            }
+          ]
+        },
+        {
+          "id": "ma-2",
+          "label": "Message",
+          "steps": [
+            {
+              "type": "text",
+              "value": "Message"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "tab-ya",
+      "label": "や",
+      "macros": [
+        {
+          "id": "ya-1",
+          "label": "Yes",
+          "steps": [
+            {
+              "type": "text",
+              "value": "Yes"
+            }
+          ]
+        },
+        {
+          "id": "ya-2",
+          "label": "Your name",
+          "steps": [
+            {
+              "type": "text",
+              "value": "Your name"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "tab-ra",
+      "label": "ら",
+      "macros": [
+        {
+          "id": "ra-1",
+          "label": "Ready",
+          "steps": [
+            {
+              "type": "text",
+              "value": "Ready"
+            }
+          ]
+        },
+        {
+          "id": "ra-2",
+          "label": "Reply",
+          "steps": [
+            {
+              "type": "text",
+              "value": "Reply"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "tab-wa",
+      "label": "わ",
+      "macros": [
+        {
+          "id": "wa-1",
+          "label": "Welcome",
+          "steps": [
+            {
+              "type": "text",
+              "value": "Welcome"
+            }
+          ]
+        },
+        {
+          "id": "wa-2",
+          "label": "World",
+          "steps": [
+            {
+              "type": "text",
+              "value": "World"
             }
           ]
         }
