@@ -1,10 +1,12 @@
 import base64
 import io
 import json
+import re
 
 import pytest
 from itsdangerous import URLSafeTimedSerializer
 from werkzeug.datastructures import MultiDict
+from werkzeug.security import check_password_hash, generate_password_hash
 
 from app.hid_keyboard import HIDError, USLayout
 from app.main import create_app
@@ -21,6 +23,111 @@ def test_all_reads_require_authentication(client, path):
 
 def test_wrong_password_rejected(client):
     token = base64.b64encode(b"tester:wrong").decode()
+    assert client.get("/", headers={"Authorization": f"Basic {token}"}).status_code == 401
+    assert client.get_cookie("keybridge_session") is None
+
+
+def test_password_checked_once_for_browser_session(client, auth, keyboard, monkeypatch):
+    checks = []
+
+    def count_check(stored, supplied):
+        checks.append(True)
+        return check_password_hash(stored, supplied)
+
+    monkeypatch.setattr("app.main.check_password_hash", count_check)
+    response = client.get("/", headers=auth)
+    assert response.status_code == 200
+    cookie = client.get_cookie("keybridge_session")
+    assert cookie.http_only
+    assert cookie.same_site == "Strict"
+    assert cookie.expires is not None
+    token = re.search(r'name="csrf-token" content="([^\"]+)"', response.get_data(as_text=True))[1]
+
+    # Browsers may keep sending cached Basic credentials alongside the cookie.
+    for headers in ({}, auth):
+        for path in ("/", "/static/app.js", "/api/macros", "/api/status", "/api/config/export"):
+            response = client.get(path, headers=headers)
+            assert response.status_code == 200
+            assert "Set-Cookie" not in response.headers
+        assert (
+            client.post(
+                "/api/macros/hello/execute", headers={**headers, "X-CSRF-Token": token}
+            ).status_code
+            == 200
+        )
+    assert len(checks) == 1
+    assert len(keyboard.reports) == 2 * len("Hello World!")
+
+
+def test_session_alone_still_requires_csrf(client, headers, keyboard):
+    path = "/api/macros/hello/execute"
+    assert client.post(path).status_code == 403
+    assert client.post(path, headers={"X-CSRF-Token": "forged"}).status_code == 403
+    assert (
+        client.post(
+            path,
+            headers={"X-CSRF-Token": headers["X-CSRF-Token"], "Sec-Fetch-Site": "cross-site"},
+        ).status_code
+        == 403
+    )
+    assert keyboard.reports == []
+
+
+def test_session_expires_without_sliding_and_basic_renews_it(client, auth, monkeypatch):
+    now = 1700000000
+    monkeypatch.setattr("itsdangerous.timed.TimestampSigner.get_timestamp", lambda self: now)
+    checks = []
+
+    def count_check(stored, supplied):
+        checks.append(True)
+        return check_password_hash(stored, supplied)
+
+    monkeypatch.setattr("app.main.check_password_hash", count_check)
+    assert client.get("/", headers=auth).status_code == 200
+    now += 1800
+    response = client.get("/api/status")
+    assert response.status_code == 200
+    assert "Set-Cookie" not in response.headers
+    now += 1801
+    assert client.get("/api/status").status_code == 401
+    assert len(checks) == 1
+    assert client.get("/api/status", headers=auth).status_code == 200
+    assert len(checks) == 2
+    assert client.get("/api/status").status_code == 200
+
+
+def test_forged_session_rejected_and_basic_can_recover(client, auth):
+    assert client.get("/", headers=auth).status_code == 200
+    cookie = client.get_cookie("keybridge_session").value
+    client.set_cookie("keybridge_session", cookie + "tampered")
+    assert client.get("/api/status").status_code == 401
+    assert client.get("/api/status", headers=auth).status_code == 200
+    assert client.get("/api/status").status_code == 200
+
+
+@pytest.mark.parametrize("changed", [None, "username", "password", "secret"])
+def test_sessions_survive_restart_only_with_same_credentials(client, auth, app, keyboard, changed):
+    assert client.get("/", headers=auth).status_code == 200
+    config = dict(app.config)
+    if changed == "username":
+        config["AUTH_USERNAME"] = "new-user"
+    elif changed == "password":
+        config["AUTH_PASSWORD_HASH"] = generate_password_hash(
+            "new-password", method="pbkdf2:sha256:1000"
+        )
+    elif changed == "secret":
+        config["SECRET_KEY"] = "n" * 64
+    fresh_client = create_app(config, keyboard=keyboard).test_client()
+    fresh_client.set_cookie("keybridge_session", client.get_cookie("keybridge_session").value)
+    assert fresh_client.get("/api/status").status_code == (401 if changed else 200)
+
+
+def test_wrong_username_skips_password_hashing(client, monkeypatch):
+    def unexpected_check(*_):
+        pytest.fail("Unknown usernames should not trigger password hashing")
+
+    monkeypatch.setattr("app.main.check_password_hash", unexpected_check)
+    token = base64.b64encode(b"unknown:test-password").decode()
     assert client.get("/", headers={"Authorization": f"Basic {token}"}).status_code == 401
 
 

@@ -3,9 +3,10 @@
 import hmac
 import io
 import os
+from datetime import timedelta
 from pathlib import Path
 
-from flask import Flask, jsonify, render_template, request, send_file
+from flask import Flask, jsonify, render_template, request, send_file, session
 from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
 from werkzeug.exceptions import HTTPException
 from werkzeug.security import check_password_hash
@@ -27,6 +28,11 @@ def create_app(config=None, *, keyboard=None):
         HID_DEVICE=os.environ.get("KEYBRIDGE_HID_DEVICE", "/dev/hidg0"),
         KEY_INTERVAL_MS=os.environ.get("KEYBRIDGE_KEY_INTERVAL_MS", "20"),
         KEY_HOLD_MS=os.environ.get("KEYBRIDGE_KEY_HOLD_MS", "20"),
+        SESSION_COOKIE_NAME="keybridge_session",
+        SESSION_COOKIE_HTTPONLY=True,
+        SESSION_COOKIE_SAMESITE="Strict",
+        PERMANENT_SESSION_LIFETIME=timedelta(hours=1),
+        SESSION_REFRESH_EACH_REQUEST=False,
         MAX_CONTENT_LENGTH=MAX_CONFIG_BYTES + 16 * 1024,
         # Werkzeug also applies this limit to its multipart decoder buffer,
         # including file chunks. Keep it large enough for a valid 256 KiB file.
@@ -49,6 +55,13 @@ def create_app(config=None, *, keyboard=None):
     manager = ConfigManager(app.config["CONFIG_PATH"], compiler)
     executor = MacroExecutor(keyboard, compiler)
     signer = URLSafeTimedSerializer(app.config["SECRET_KEY"], salt="keybridge-csrf-v1")
+    # Bind sessions to the current credentials without putting the password hash
+    # in the cookie. Credential changes invalidate sessions after a restart.
+    auth_identity = hmac.digest(
+        app.config["SECRET_KEY"].encode(),
+        (app.config["AUTH_USERNAME"] + "\0" + app.config["AUTH_PASSWORD_HASH"]).encode(),
+        "sha256",
+    ).hex()
     app.extensions.update(config_manager=manager, macro_executor=executor, keyboard=keyboard)
 
     def error(message, code, status):
@@ -56,18 +69,24 @@ def create_app(config=None, *, keyboard=None):
 
     @app.before_request
     def authenticate_and_check_csrf():
-        auth = request.authorization
-        valid = False
-        if auth and auth.type == "basic" and auth.username and auth.password is not None:
-            valid_user = hmac.compare_digest(
-                auth.username.encode(), app.config["AUTH_USERNAME"].encode()
-            )
-            valid_password = check_password_hash(app.config["AUTH_PASSWORD_HASH"], auth.password)
-            valid = valid_user and valid_password
-        if not valid:
-            response, status = error("Authentication required", "unauthorized", 401)
-            response.headers["WWW-Authenticate"] = 'Basic realm="KeyBridge", charset="UTF-8"'
-            return response, status
+        if session.get("auth") != auth_identity:
+            auth = request.authorization
+            valid = False
+            if auth and auth.type == "basic" and auth.username and auth.password is not None:
+                valid_user = hmac.compare_digest(
+                    auth.username.encode(), app.config["AUTH_USERNAME"].encode()
+                )
+                # Only pay the password hashing cost when establishing a session.
+                valid = valid_user and check_password_hash(
+                    app.config["AUTH_PASSWORD_HASH"], auth.password
+                )
+            if not valid:
+                response, status = error("Authentication required", "unauthorized", 401)
+                response.headers["WWW-Authenticate"] = 'Basic realm="KeyBridge", charset="UTF-8"'
+                return response, status
+            session.clear()
+            session["auth"] = auth_identity
+            session.permanent = True
         if request.method not in ("GET", "HEAD", "OPTIONS"):
             try:
                 user = signer.loads(request.headers.get("X-CSRF-Token", ""), max_age=3600)

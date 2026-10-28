@@ -1,4 +1,8 @@
 import importlib.util
+import json
+import os
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -106,3 +110,80 @@ def test_managed_block_does_not_hide_conflict_after_its_all_reset(tmp_path):
 def test_board_type_filter(value, applies):
     conflict = boot.find_usb_overlay(f"[board-type={value}]\ndtoverlay=dwc2\n")
     assert bool(conflict) == applies
+
+
+@pytest.fixture
+def run_package_installer(tmp_path):
+    commands = tmp_path / "bin"
+    commands.mkdir()
+    query = commands / "dpkg-query"
+    query.write_text(
+        f"#!{sys.executable}\n"
+        "import json, os, sys\n"
+        "state = json.loads(os.environ['PACKAGE_TEST_STATES']).get(sys.argv[-1], 'installed')\n"
+        "if state is None:\n"
+        "    sys.exit(1)\n"
+        "print(state, end='')\n"
+    )
+    apt = commands / "apt-get"
+    apt.write_text(
+        f"#!{sys.executable}\n"
+        "import json, os, sys\n"
+        "with open(os.environ['PACKAGE_TEST_LOG'], 'a') as stream:\n"
+        "    stream.write(json.dumps(sys.argv[1:]) + '\\n')\n"
+        "sys.exit(42 if sys.argv[1] == os.environ['PACKAGE_TEST_FAIL'] else 0)\n"
+    )
+    query.chmod(0o755)
+    apt.chmod(0o755)
+    log = tmp_path / "apt.jsonl"
+
+    def run(states, *, fail=""):
+        result = subprocess.run(
+            ["bash", str(Path(__file__).resolve().parents[1] / "scripts/install-packages.sh")],
+            env={
+                **os.environ,
+                "PATH": str(commands) + os.pathsep + os.environ["PATH"],
+                "PACKAGE_TEST_STATES": json.dumps(states),
+                "PACKAGE_TEST_LOG": str(log),
+                "PACKAGE_TEST_FAIL": fail,
+            },
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        calls = [json.loads(line) for line in log.read_text().splitlines()] if log.exists() else []
+        return result, calls
+
+    return run
+
+
+def test_installed_system_packages_skip_all_apt_access(run_package_installer):
+    result, calls = run_package_installer({})
+    assert result.returncode == 0, result.stderr
+    assert calls == []
+    assert "skipping APT update and install" in result.stdout
+
+
+@pytest.mark.parametrize(
+    "state", [None, "not-installed", "config-files", "unpacked", "half-configured"]
+)
+def test_only_missing_or_incomplete_system_packages_are_installed(run_package_installer, state):
+    result, calls = run_package_installer({"python3-venv": state, "kmod": None})
+    assert result.returncode == 0, result.stderr
+    assert calls == [["update"], ["install", "-y", "python3-venv", "kmod"]]
+
+
+def test_first_install_fetches_all_required_system_packages(run_package_installer):
+    packages = ["python3", "python3-venv", "python3-pip", "kmod"]
+    result, calls = run_package_installer(dict.fromkeys(packages))
+    assert result.returncode == 0, result.stderr
+    assert calls == [["update"], ["install", "-y", *packages]]
+
+
+@pytest.mark.parametrize("fail", ["update", "install"])
+def test_apt_failures_stop_package_installation(run_package_installer, fail):
+    result, calls = run_package_installer({"python3-pip": None}, fail=fail)
+    assert result.returncode == 42
+    assert calls == (
+        [["update"]] if fail == "update" else [["update"], ["install", "-y", "python3-pip"]]
+    )

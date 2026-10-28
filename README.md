@@ -253,7 +253,7 @@ Webが起動失敗している場合は、手順2のjournalも確認・共有し
 
 ## 補足：インストーラーによる変更
 
-1. aptで `python3`, `python3-venv`, `python3-pip`, `kmod` をインストール。
+1. `dpkg-query` で `python3`, `python3-venv`, `python3-pip`, `kmod` の導入状態を確認。すべて導入済みなら `apt-get update` と `apt-get install` を両方スキップ。不足・未設定のパッケージがある場合だけAPTの一覧を更新し、そのパッケージをインストール。
 2. 専用の `keybridge` システムユーザー・グループを作成。
 3. アプリを `/opt/keybridge` に配置。コードはroot所有、Webサービスから書き換え不可。
 4. `python3 -m venv /opt/keybridge/.venv` と `pip install -r requirements.txt` を実行。
@@ -357,7 +357,9 @@ SSHでJSONを直接編集した場合はWebサービスを再起動してくだ�
 
 ## API
 
-全ページ・静的ファイル・APIにHTTP Basic認証が必要です。POSTにはページのmeta要素から取得した `X-CSRF-Token` が必要です。
+全ページ・静的ファイル・APIに認証が必要です。最初のアクセスで従来どおりHTTP Basic認証を行い、以後1時間は署名付きCookieで認証します。Piの負荷を抑えるため、有効なCookieがあればパスワードのハッシュ検証を繰り返しません。ボタン操作・接続状態確認も軽い署名確認で処理します。追加のデータベースや依存パッケージは不要です。
+
+Cookieは `HttpOnly`・`SameSite=Strict` で、期限は操作のたびに延長しません。期限切れ時は、ブラウザが保持するBasic認証情報で再検証します。Cookieを保持しないAPIクライアントも従来どおりBasic認証を使えますが、毎回パスワードを検証します。POSTには引き続き、ページのmeta要素から取得した `X-CSRF-Token` が必要です。
 
 | Method | Path | 内容 |
 | --- | --- | --- |
@@ -393,7 +395,7 @@ sudo journalctl -u keybridge-web -f
 | --- | --- |
 | `KEYBRIDGE_USERNAME` | 対話入力したWebユーザー名 |
 | `KEYBRIDGE_PASSWORD_HASH` | PBKDF2-SHA256ハッシュ。平文パスワードは保存しない |
-| `KEYBRIDGE_SECRET_KEY` | 生成した64桁ランダム16進文字列。CSRF署名用 |
+| `KEYBRIDGE_SECRET_KEY` | 生成した64桁ランダム16進文字列。認証Cookie・CSRF署名用 |
 | `KEYBRIDGE_KEY_INTERVAL_MS` | `20`、キー解放後の待ち時間 |
 | `KEYBRIDGE_KEY_HOLD_MS` | `20`、キー押下の維持時間 |
 | `KEYBRIDGE_CONFIG` | 省略時 `/opt/keybridge/data/macros.json` |
@@ -410,6 +412,7 @@ sudo systemctl restart keybridge-web
 ```
 
 署名鍵とタイミング設定も新しくします。画面を再読み込みしてください。ブラウザが古いBasic認証を保持する場合は、そのサイトの認証情報を消すか新しいプライベートウィンドウで開きます。
+ユーザー名・パスワードハッシュ・署名鍵のいずれかを変更してWebサービスを再起動すると、発行済みの認証Cookieも無効になります。
 
 HTTPの平文通信は**信頼できるLAN内の試作・開発用**です。インターネットへ直接公開しないでください。
 通信保護が必要ならHTTPSリバースプロキシを前段に置き、Gunicornのbindを `127.0.0.1:8000` に変更します（プロキシと証明書の自動設定は含みません）。
@@ -436,6 +439,8 @@ sudo reboot
 ```
 
 再インストール時も `/opt/keybridge/data/macros.json` と認証ファイルを上書きしません。
+必要なシステムパッケージが導入済みなら、APTの一覧取得・インストールは行いません。Python仮想環境の作成・確認と `pip install -r requirements.txt` は引き続き実行します。
+認証Cookieに対応した版への更新でも、既存のユーザー名・パスワードをそのまま使えます。認証の再設定は不要です。
 本番設定は展開フォルダーから独立しています。展開先の `data/macros.json` を編集しても本番設定は変わりません。
 導入途中で失敗した場合、Webが停止したままになることがあります。原因を修正して再実行してください。
 
@@ -478,7 +483,7 @@ python3 -m venv .venv
 .venv/bin/python -m pip install -r requirements-dev.txt
 .venv/bin/pytest -q --cov=app --cov-report=term-missing
 .venv/bin/ruff check .
-bash -n scripts/setup-gadget.sh scripts/install.sh scripts/package.sh
+bash -n scripts/*.sh
 ```
 
 WindowsではVS Code開発コンテナーかWSLを使用してください。ネイティブPythonでは `.venv/bin/python` を `.venv\Scripts\python.exe` に読み替えられますが、Linux固有のI/OテストとGadgetスクリプトはLinuxが必要です。
@@ -496,7 +501,7 @@ set +a
 `http://127.0.0.1:8000` を開きます。HIDがなければ送信ボタンは無効、APIは503です。
 認証情報の `.env` と自動生成される `data/macros.json` はGit追跡・配布の対象外です。
 
-テスト対象はASCIIと各キーのレポート、例外時のキー解放、切断・再接続・タイムアウト、事前検証、待機、排他、JSON検証・永続化・保存失敗、認証・CSRF・API・アップロード制限、boot設定のバックアップ・冪等性です。
+テスト対象はASCIIと各キーのレポート、例外時のキー解放、切断・再接続・タイムアウト、事前検証、待機、排他、JSON検証・永続化・保存失敗、認証・CSRF・API・アップロード制限、boot設定のバックアップ・冪等性です。認証では、Cookie発行後にパスワード検証を繰り返さないこと、期限切れ・改ざん・設定変更時の無効化も確認します。
 
 ## 実機チェック（未実施）
 
@@ -524,6 +529,7 @@ set +a
 | hidg0 belongs to another gadget / UDC busy | 既存のg_ether・g_hid・別のConfigFS Gadget。自動解除しません |
 | 503 / HID権限なし | USB接続、`ls -l /dev/hidg0`、Gadgetログ |
 | 記号・文字が違う | WindowsのUS/JIS配列、IME、Caps Lock、フォーカス。遅いアプリでは入力間隔を増やす |
+| ボタンを押してから入力開始まで遅い | 最新版へ更新し、ブラウザでCookieを許可して画面を再読み込み。初回認証と1時間ごとの更新時にはパスワード検証が必要。毎回遅い場合は通信・Piの負荷・マクロ先頭のdelay・USB接続を確認。キー間隔の設定は入力開始後の速度に影響 |
 | Webにアクセスできない | [Webにアクセスできないときの確認](#webにアクセスできないときの確認)を順番に実行 |
 | 401 | SSH用ではなくWeb用の認証情報か。必要ならconfigure-auth.pyで再設定 |
 | 403 / CSRF期限切れ | 画面を再読み込み。別サイトからのPOSTは拒否 |
@@ -563,6 +569,7 @@ data/macros.json          実行時設定（自動生成・Git対象外）
 scripts/
   setup-gadget.sh         ConfigFS初期化・停止
   install.sh              Piへの導入・更新
+  install-packages.sh     必須パッケージ確認・不足時のみAPT実行
   configure-boot.py       boot設定の追記
   configure-auth.py       認証ファイル生成
   package.sh              SCPアーカイブ作成

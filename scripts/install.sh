@@ -23,8 +23,7 @@ echo "two systemd units, a device permission rule, and a dwc2 modules-load file.
 echo "It appends a managed block to $BOOT_CONFIG and keeps config.txt.keybridge.bak."
 echo "Existing macros and credentials are preserved. Network and SSH settings are unchanged."
 python3 "$SOURCE/scripts/configure-boot.py" "$BOOT_CONFIG" --dry-run
-apt-get update
-apt-get install -y python3 python3-venv python3-pip kmod
+bash "$SOURCE/scripts/install-packages.sh"
 
 if ! getent group keybridge >/dev/null; then
     groupadd --system keybridge
