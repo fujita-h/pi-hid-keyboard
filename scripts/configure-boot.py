@@ -11,6 +11,67 @@ from pathlib import Path
 BEGIN = "# BEGIN KeyBridge"
 END = "# END KeyBridge"
 BLOCK = f"{BEGIN}\n[all]\ndtoverlay=dwc2,dr_mode=peripheral\n{END}\n"
+OVERLAY = "dtoverlay=dwc2,dr_mode=peripheral"
+# Model filters documented by Raspberry Pi. A Zero 2 W also reads pi0/pi0w.
+# https://www.raspberrypi.com/documentation/computers/config_txt.html#conditional-filters
+MODEL_FILTERS = {
+    "pi1",
+    "pi2",
+    "pi3",
+    "pi3+",
+    "pi4",
+    "pi5",
+    "pi400",
+    "pi500",
+    "cm0",
+    "cm1",
+    "cm3",
+    "cm3+",
+    "cm4",
+    "cm4s",
+    "cm5",
+    "pi0",
+    "pi0w",
+    "pi02",
+}
+ZERO2_FILTERS = {"pi0", "pi0w", "pi02"}
+
+
+def find_usb_overlay(text):
+    """Find an overlay that could apply to Zero 2 W; leave other models alone.
+
+    Unknown GPIO, display, serial and other conditions remain potentially active.
+    We only ignore an overlay when a known model filter excludes this board, or
+    an explicit [none] disables settings. Model filters replace each other;
+    [all] resets every condition. Included files still require manual review.
+    """
+    model_matches = True
+    disabled = False
+    for number, raw in enumerate(text.splitlines(), 1):
+        line = raw.split("#", 1)[0].strip()
+        header = re.fullmatch(r"\[([^\]]+)\]", line)
+        if header:
+            condition = header[1].strip()
+            if condition == "all":
+                model_matches, disabled = True, False
+            elif condition == "none":
+                disabled = True
+            elif condition in MODEL_FILTERS:
+                model_matches = condition in ZERO2_FILTERS
+            elif condition.startswith("board-type="):
+                try:
+                    model_matches = int(condition.partition("=")[2], 0) == 0x12
+                except ValueError:
+                    # An unrecognised model condition must not hide a conflict.
+                    model_matches = True
+            continue
+        if (
+            model_matches
+            and not disabled
+            and re.match(r"dtoverlay\s*=\s*(dwc2|dwc-otg)(?:[,\s]|$)", line)
+        ):
+            return number, line
+    return None
 
 
 def configure(path: Path, *, dry_run=False):
@@ -18,12 +79,18 @@ def configure(path: Path, *, dry_run=False):
     if BEGIN in text or END in text:
         if text.count(BEGIN) != 1 or text.count(END) != 1 or BLOCK not in text:
             raise ValueError("Modified KeyBridge block; inspect config.txt manually")
-        # Check other active overlays even when our managed block already exists.
-        unmanaged = text.replace(BLOCK, "")
+        # Keep the block's [all] reset and line numbers when checking other
+        # overlays. Removing the entire block could hide conflicts after it.
+        unmanaged = text.replace(BLOCK, BLOCK.replace(OVERLAY, "# Managed KeyBridge overlay"))
     else:
         unmanaged = text
-    if re.search(r"^\s*dtoverlay\s*=\s*(dwc2|dwc-otg)(?:[,\s]|$)", unmanaged, re.M):
-        raise ValueError("Existing USB controller overlay; remove/reconcile it manually first")
+    conflict = find_usb_overlay(unmanaged)
+    if conflict:
+        number, line = conflict
+        raise ValueError(
+            f"Existing USB controller overlay at line {number}: {line}; "
+            "may apply to Zero 2 W, reconcile it manually first"
+        )
     if BLOCK in text:
         return False
     if dry_run:

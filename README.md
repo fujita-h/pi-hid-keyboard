@@ -58,8 +58,11 @@ sudo bash scripts/install.sh
 sudo reboot
 ```
 
+再起動後は、下の[再起動後に最初の入力を試す](#再起動後に最初の入力を試す)へ進んでください。
+
 Web用ユーザー名と12文字以上のパスワードを対話式で設定します。パスワードはコマンドラインやログへ出しません。
 Pi側にGitは不要です。PCの仮想環境はコピーせず、Pi上で作成します。インストーラーはPiのモデルを確認するため、開発PC上では実行できません。
+再起動前に、インストーラーの最後に **`Installation complete.`** が表示されたことを確認してください。エラーで止まった場合は、その原因を解消してから再実行します。
 
 GitHub経由ならPi上でリポジトリを取得し、同じインストーラーを使います。`REPOSITORY_URL` を実際のURLへ置き換えてください。
 
@@ -72,7 +75,183 @@ sudo bash scripts/install.sh
 sudo reboot
 ```
 
-## インストーラーによる変更
+## 再起動後に最初の入力を試す
+
+`install.sh` と再起動が終わったら、次の順に操作してください。アプリはsystemdで自動起動する設定になっています。
+
+1. **PiをWindowsへUSB接続します。** Piの **USB** と表示された端子を、データ通信対応ケーブルでWindowsへ接続してください。**PWR IN** 端子ではキー入力を送れません。
+2. **Windowsでメモ帳を開きます。** 本文の入力欄をクリックして、カーソルを置いてください。
+3. **別のスマートフォンやPCで操作画面を開きます。** Piと同じWi-Fi/LANに接続し、ブラウザで **`http://hidpi.local:8000`** を開いてください。Windowsのメモ帳にはフォーカスを置いたままにします。
+4. **Web用の認証情報を入力します。** `install.sh` 実行中に設定したWeb用ユーザー名・パスワードを使います。ユーザー名の質問で何も入力しなかった場合は `keybridge` です。
+5. **「Hello World」を押します。** 画面に「USB接続済み」が表示されていることを確認してボタンを押し、Windowsのメモ帳に `Hello World!` が入力されれば最初の動作確認は完了です。
+
+### 操作画面が開かない場合
+
+下の[Webにアクセスできないときの確認](#webにアクセスできないときの確認)を順番に実行してください。サービス・ポート・HTTP応答・操作端末からの接続を切り分けます。
+
+### 次に自分の定型文を登録する
+
+最初の入力を確認できたら、[JSON形式](#json形式)に従って設定ファイルを作成し、Web画面の「JSONをインポート」から読み込んでください。現在の設定は「エクスポート」で保存できます。
+
+## Webにアクセスできないときの確認
+
+まず **Pi自身でWebサーバーが動いているか** を確認し、その後で操作端末との通信を確認します。USBが未接続でも、Web画面にはアクセスできる設計です。
+
+### 1. PiへSSH接続してIPアドレスを確認する
+
+**操作用PCで実行:**
+
+```bash
+ssh pi@hidpi.local
+```
+
+SSHでも名前が見つからない場合は、ルーターの接続端末一覧などでPiのIPを調べ、`ssh pi@そのIP` で接続してください。
+
+**SSH接続後、Pi上で実行:**
+
+```bash
+hostname -I
+ip -br -4 addr show wlan0
+```
+
+`wlan0` に割り当てられたIPv4アドレスを使います。複数表示された場合、`127.0.0.1` は操作端末からの接続には使いません。
+以降の `192.168.1.50` は例です。**実際に表示されたPiのIPへ置き換えてください。**
+Wi-FiのIPがなければ、先にPiのWi-Fi設定・接続を確認します。
+
+### 2. Webサービスの状態とログを確認する
+
+**Pi上で実行:**
+
+```bash
+sudo systemctl status keybridge-web keybridge-gadget --no-pager -l
+sudo journalctl -u keybridge-web -u keybridge-gadget -b -n 100 --no-pager
+```
+
+| 表示 | 意味・次の確認 |
+| --- | --- |
+| Webが `active (running)` | 起動中。次のポート確認へ進む |
+| Webが `failed` / `activating (auto-restart)` | 起動失敗や再起動の繰り返し。journalの末尾だけでなく、直前の例外・エラーを確認 |
+| Webが `inactive (dead)` | 停止中。下の起動コマンドを実行し、もう一度状態・ログを確認 |
+| `Unit ... could not be found` | サービスが未登録。インストールが最後まで完了したか確認 |
+| Gadgetが `active (exited)` | oneshotによる初期化完了。これは正常 |
+
+**サービスが見つからない場合:** ポート確認へ進む前に、Pi上でインストールの状態を確認します。
+
+```bash
+hostname
+ls -ld /opt/keybridge /etc/keybridge
+find "$HOME" -maxdepth 3 -type f -path '*/scripts/install.sh' -print
+```
+
+`hostname` が想定した `hidpi` かを確認します。`/opt/keybridge` もなければ、アプリ配置より前にインストーラーが停止している可能性があります。
+`find` で見つかった展開フォルダーへ移動し、インストーラーを再実行して停止箇所を確認してください。例えば `/home/pi/keybridge-upload.abcdef/scripts/install.sh` が見つかった場合:
+
+```bash
+cd /home/pi/keybridge-upload.abcdef
+sudo bash scripts/install.sh
+```
+
+`abcdef` は、実際に見つかったフォルダー名に置き換えます。**最後に `Installation complete.` が表示されることを確認してから `sudo reboot` を実行します。**
+エラーで止まった場合は、その出力を確認・共有してください。再起動だけでは未登録のサービスは作成されません。
+
+旧版で `Existing USB controller overlay` が出る場合、`[cm5]` など他機種向けの設定まで競合と誤判定している可能性があります。設定行とその機種条件は次で確認できます。
+
+```bash
+grep -nE '^\[|^[[:space:]]*dtoverlay[[:space:]]*=[[:space:]]*(dwc2|dwc-otg)' /boot/firmware/config.txt
+```
+
+最新版は機種条件を考慮します。旧版を展開済みの場合は、開発PCから修正版をSCPし、その展開フォルダーのインストーラーを再実行してください。
+`[cm5]` 内の設定をZero 2 W用に削除・書き換える必要はありません。`[all]` / `[pi02]` などZero 2 Wにも適用される箇所に既存のUSB設定がある場合は、引き続き競合を確認します。
+
+Webが停止中の場合の起動:
+
+```bash
+sudo systemctl start keybridge-web
+```
+
+ログに `ModuleNotFoundError`、環境ファイルの読み込み失敗、JSONの検証エラー、`Permission denied` などがあれば、その原因を先に修正します。
+`Start request repeated too quickly` が出る場合は、原因修正後に `sudo systemctl reset-failed keybridge-web`、`sudo systemctl start keybridge-web` を実行します。
+認証設定ファイルの中身を表示・共有する必要はありません。
+
+### 3. 8000番ポートで待ち受けているか確認する
+
+**Pi上で実行:**
+
+```bash
+sudo ss -ltnp 'sport = :8000'
+```
+
+配布したsystemd設定では、`LISTEN` の行に **`0.0.0.0:8000`** とGunicornのプロセスが表示される想定です。
+
+- 見出しだけで行がない: 8000番で待ち受けていません。Webサービスの状態・ログへ戻ります。
+- `127.0.0.1:8000` のみ: Pi自身からだけ接続できる設定です。手動起動や独自のサービス設定がないか確認します。
+- 別のプロセスが8000番を使用: Webサービスのログにポート競合が出ていないか確認します。
+
+実際に読み込まれているサービス設定は `systemctl cat keybridge-web` で確認できます。通常のLAN運用では `ExecStart` に `--bind 0.0.0.0:8000` が入ります。
+HTTPSプロキシを別途設定している場合は、その構成に合わせて確認してください。
+
+### 4. Pi自身からHTTP応答を確認する
+
+**Pi上で実行:**
+
+```bash
+curl --noproxy '*' -i --connect-timeout 3 --max-time 10 http://127.0.0.1:8000/api/status
+```
+
+`curl: command not found` の場合は、Pi上で `sudo apt-get install -y curl` を実行してから再試行します。
+
+このコマンドは認証情報を送らないため、**`HTTP/1.1 401 UNAUTHORIZED` と `WWW-Authenticate: Basic ...` が返れば、期待する応答です。** この段階ではパスワード入力は不要です。
+
+| 結果 | 意味・次の確認 |
+| --- | --- |
+| HTTP 401とBasic認証のヘッダー | Webサーバーへ到達できている。次のLANからの確認へ進む |
+| `curl: (7)` / `Connection refused` | 接続できていない。サービス停止・待ち受け先・起動ログを確認 |
+| `curl: (28)` / タイムアウト | 応答がない。サービスのログとPiの負荷・通信設定を確認 |
+| HTTP 500 | HTTPサーバーには到達。Webサービスのjournalで例外を確認 |
+
+続いて、同じPi上で **PiのLAN側IP** にも接続してみます。
+
+```bash
+curl --noproxy '*' -i --connect-timeout 3 --max-time 10 http://192.168.1.50:8000/api/status
+```
+
+こちらも401なら、Pi自身からLAN側の待ち受けへ接続できています。
+`127.0.0.1` は成功するのにLAN側IPでは失敗する場合は、IPが正しいか、待ち受け先が `0.0.0.0:8000` か、Pi側のファイアウォールで制限していないかを確認します。
+
+### 5. 操作用PCから接続する
+
+**WindowsのPowerShellで実行（IPは置き換える）:**
+
+```powershell
+Test-NetConnection -ComputerName 192.168.1.50 -Port 8000
+curl.exe --noproxy "*" -i --connect-timeout 3 --max-time 10 http://192.168.1.50:8000/api/status
+```
+
+- `TcpTestSucceeded : True`、curlもHTTP 401: PCから到達できています。ブラウザで **`http://192.168.1.50:8000`** を開き、Web用の認証情報を入力します。
+- `TcpTestSucceeded : False`: PiのIP、同じLANか、ゲストWi-Fi・APの端末分離、VPN・ファイアウォールで8000/tcpが遮断されていないかを確認します。Pi上では成功しているかも比較してください。
+- IP指定では開くが `hidpi.local` では開かない: ホスト名の解決を確認します。当面はIP指定で利用できます。
+
+ブラウザのURLは **`http://` と `:8000` を含めて** 入力します。標準のインストールではHTTPSを設定していません。
+スマートフォンの場合も同じIPのURLで確認します。ルーターによっては、同じSSIDでもゲスト接続や端末分離により通信できない場合があります。
+
+### 6. 原因が分からない場合に共有する結果
+
+次の結果があると、どこで止まっているかを確認できます。**最初の4コマンドはPi上、最後は操作用PCで実行します。**
+
+```bash
+hostname -I
+sudo systemctl status keybridge-web keybridge-gadget --no-pager -l
+sudo ss -ltnp 'sport = :8000'
+curl --noproxy '*' -i --connect-timeout 3 --max-time 10 http://127.0.0.1:8000/api/status
+```
+
+```powershell
+Test-NetConnection -ComputerName 192.168.1.50 -Port 8000
+```
+
+Webが起動失敗している場合は、手順2のjournalも確認・共有してください。Web用パスワード、パスワードハッシュ、署名鍵は共有しないでください。
+
+## 補足：インストーラーによる変更
 
 1. aptで `python3`, `python3-venv`, `python3-pip`, `kmod` をインストール。
 2. 専用の `keybridge` システムユーザー・グループを作成。
@@ -99,7 +278,8 @@ boot設定は通常 `/boot/firmware/config.txt`、なければ `/boot/config.txt
 python3 scripts/configure-boot.py /boot/firmware/config.txt --dry-run
 ```
 
-既存の `dtoverlay=dwc2...` / `dwc-otg...` があれば、自動変更せず停止します。重複・競合を解消して再実行してください。
+Zero 2 Wに適用される可能性のある既存の `dtoverlay=dwc2...` / `dwc-otg...` があれば、自動変更せず行番号付きで停止します。重複・競合を確認して再実行してください。
+`[cm5]` など別機種向けの条件内にある設定は保持し、インストールを続行します。機種条件は[Raspberry Pi公式の条件付きフィルター](https://www.raspberrypi.com/documentation/computers/config_txt.html#conditional-filters)に基づきます。
 `include` 先の設定や既存の `g_ether` / `g_hid` など、別のUSB Gadget構成は自動解析・解除しません。使用中なら先に整理してください。
 overlayの指定は[Raspberry Piの定義](https://github.com/raspberrypi/firmware/blob/master/boot/overlays/README)に基づきます。[boot設定の反映には再起動が必要](https://www.raspberrypi.com/documentation/computers/config_txt.html)です。
 
@@ -288,8 +468,9 @@ scp pi@hidpi.local:~/keybridge-debug.log .
 
 ログにマクロ本文・平文パスワードは出しません。アクセス元IPやマクロIDは含まれる場合があります。
 
-## ローカル開発・テスト
+## ローカル開発・テスト（開発PC向け）
 
+以下は開発PCでの検証手順です。インストール済みのPiはsystemdで自動起動するため、通常利用ではこの節の手動起動は不要です。
 Raspberry Piがなくても、HIDをモック化したテストを実行できます。
 
 ```bash
@@ -343,7 +524,7 @@ set +a
 | hidg0 belongs to another gadget / UDC busy | 既存のg_ether・g_hid・別のConfigFS Gadget。自動解除しません |
 | 503 / HID権限なし | USB接続、`ls -l /dev/hidg0`、Gadgetログ |
 | 記号・文字が違う | WindowsのUS/JIS配列、IME、Caps Lock、フォーカス。遅いアプリでは入力間隔を増やす |
-| Webにアクセスできない | IP、同じWi-Fiか、端末分離、8000/tcp、Webのjournal |
+| Webにアクセスできない | [Webにアクセスできないときの確認](#webにアクセスできないときの確認)を順番に実行 |
 | 401 | SSH用ではなくWeb用の認証情報か。必要ならconfigure-auth.pyで再設定 |
 | 403 / CSRF期限切れ | 画面を再読み込み。別サイトからのPOSTは拒否 |
 | インポート400 / 413 | UTF-8、.json、必須フィールド、キー名、256 KiB・60秒制限 |
