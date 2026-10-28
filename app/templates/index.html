@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="csrf-token" content="{{ csrf_token }}">
+  <meta name="color-scheme" content="light dark">
+  <title>KeyBridge</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+  <script src="{{ url_for('static', filename='app.js') }}" defer></script>
+</head>
+<body>
+  <main>
+    <header>
+      <div><p class="eyebrow">USB KEYBOARD · US LAYOUT</p><h1>KeyBridge</h1></div>
+      <span id="connection" class="connection" role="status">接続確認中…</span>
+    </header>
+    <p class="intro">ボタンを押すと、USB接続先へキー入力を送信します。<br>
+      接続先で、入力したいアプリにフォーカスを合わせてください。</p>
+    <section aria-labelledby="macros-title">
+      <div class="section-heading"><h2 id="macros-title">定型入力</h2><span id="macro-count"></span></div>
+      <div id="macros" class="grid" aria-busy="true"></div>
+      <p id="empty" hidden>マクロはまだありません。JSON設定をインポートしてください。</p>
+    </section>
+    <p id="message" class="message" role="status" aria-live="polite">マクロを読み込み中…</p>
+    <section class="settings" aria-labelledby="settings-title">
+      <div><h2 id="settings-title">設定ファイル</h2><p>UTF-8 JSON · 最大256 KiB<br>インポートすると、現在の設定をすべて置き換えます。</p></div>
+      <div class="actions">
+        <button id="import" type="button" class="secondary" disabled>JSONをインポート</button>
+        <input id="file" type="file" accept=".json,application/json" hidden>
+        <a href="/api/config/export" class="secondary" download="macros.json">エクスポート</a>
+      </div>
+    </section>
+    <footer>操作画面はUSB接続先とは別のスマートフォンやPCで開いてください。</footer>
+    <noscript><p>この操作画面にはJavaScriptが必要です。</p></noscript>
+  </main>
+</body>
+</html>
+

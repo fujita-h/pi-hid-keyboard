@@ -1,0 +1,35 @@
+[Unit]
+Description=KeyBridge web keyboard controller
+Wants=network-online.target keybridge-gadget.service
+After=network-online.target keybridge-gadget.service
+
+[Service]
+Type=simple
+User=keybridge
+Group=keybridge
+WorkingDirectory=/opt/keybridge
+EnvironmentFile=/etc/keybridge/keybridge.env
+Environment=PYTHONDONTWRITEBYTECODE=1
+# A single worker is essential: the HID execution mutex is process-local.
+# Disable the optional runtime control socket: worker count stays fixed, and
+# Gunicorn does not need to write a control directory under its home directory.
+ExecStart=/opt/keybridge/.venv/bin/gunicorn --no-control-socket --workers 1 --worker-class gthread --threads 4 --bind 0.0.0.0:8000 --timeout 120 --graceful-timeout 70 --access-logfile - --error-logfile - app.main:create_app()
+Restart=on-failure
+RestartSec=3
+TimeoutStopSec=75
+UMask=0077
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/opt/keybridge/data
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+RestrictSUIDSGID=yes
+LockPersonality=yes
+CapabilityBoundingSet=
+
+[Install]
+WantedBy=multi-user.target

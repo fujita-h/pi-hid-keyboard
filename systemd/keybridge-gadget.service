@@ -1,0 +1,18 @@
+[Unit]
+Description=KeyBridge USB HID gadget
+After=systemd-modules-load.service systemd-udevd.service
+StartLimitIntervalSec=0
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/opt/keybridge/scripts/setup-gadget.sh start
+ExecStop=/opt/keybridge/scripts/setup-gadget.sh stop
+Restart=on-failure
+RestartSec=5
+TimeoutStartSec=30
+TimeoutStopSec=15
+
+[Install]
+WantedBy=multi-user.target
+
