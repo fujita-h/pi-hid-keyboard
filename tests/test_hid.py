@@ -6,6 +6,8 @@ from types import SimpleNamespace
 import pytest
 
 from app.hid_keyboard import RELEASE_REPORT, HIDError, HIDKeyboard, KeyMappingError, USLayout
+from app.key_timing import KeyTiming
+from app.macro_executor import MacroCompiler, MacroExecutor
 
 
 @pytest.mark.parametrize(
@@ -100,6 +102,60 @@ def test_press_and_release_and_reopen(transport):
     assert writes == [RELEASE_REPORT, report, RELEASE_REPORT, RELEASE_REPORT] * 2
     assert len(opens) == 2 and closes == [17, 17]
     assert opens[0][1] & os.O_NONBLOCK
+
+
+@pytest.mark.parametrize(
+    ("hold_multiplier", "interval_multiplier"), [(1, 1), (1.5, 1), (1, 2), (1.5, 2)]
+)
+def test_each_key_samples_hold_and_interval_independently(
+    transport, monkeypatch, hold_multiplier, interval_multiplier
+):
+    keyboard, writes, _, _ = transport
+    keyboard.hold_timing = KeyTiming(20, hold_multiplier)
+    sleeps = []
+    keyboard.sleep = sleeps.append
+    draws = {}
+
+    def draw(lower, upper):
+        count = draws.get((lower, upper), 0)
+        draws[(lower, upper)] = count + 1
+        return lower + (upper - lower) * (count % 3) / 2
+
+    monkeypatch.setattr("app.key_timing.random.uniform", draw)
+    compiler = MacroCompiler(
+        hold_ms=20,
+        interval_ms=30,
+        hold_max_multiplier=hold_multiplier,
+        interval_max_multiplier=interval_multiplier,
+    )
+    executor = MacroExecutor(keyboard, compiler, sleep=sleeps.append)
+    executor.execute(
+        [
+            {"type": "text", "value": "aa"},
+            {"type": "combo", "keys": ["CTRL", "A"]},
+            {"type": "delay", "ms": 300},
+            {"type": "key", "value": "ENTER"},
+        ]
+    )
+    expected = []
+    for fraction in (0, 0.5, 1, 0):
+        expected.extend(
+            [
+                0.02 * (1 + (hold_multiplier - 1) * fraction),
+                0.03 * (1 + (interval_multiplier - 1) * fraction),
+            ]
+        )
+    expected.insert(6, 0.3)
+    assert sleeps == pytest.approx(expected)
+    assert len(draws) == (hold_multiplier > 1) + (interval_multiplier > 1)
+    assert all(count == 4 for count in draws.values())
+    layout = USLayout()
+    reports = [layout.key("a"), layout.key("a"), layout.combo(["CTRL", "A"]), layout.key("ENTER")]
+    assert writes == [
+        RELEASE_REPORT,
+        *(r for report in reports for r in (report, RELEASE_REPORT)),
+        RELEASE_REPORT,
+    ]
 
 
 def test_release_on_execution_exception(transport):

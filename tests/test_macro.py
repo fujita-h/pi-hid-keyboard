@@ -103,3 +103,31 @@ def test_exception_frees_execution_lock(keyboard):
 def test_invalid_timing(value):
     with pytest.raises(ValueError):
         MacroCompiler(interval_ms=value)
+
+
+@pytest.mark.parametrize(
+    "step",
+    [
+        {"type": "text", "value": "a"},
+        {"type": "key", "value": "ENTER"},
+        {"type": "combo", "keys": ["CTRL", "A"]},
+    ],
+)
+def test_random_timing_maximum_validated_before_any_typing(keyboard, step):
+    steps = [{"type": "delay", "ms": 59950}, step]
+    assert MacroCompiler().compile(steps)
+    compiler = MacroCompiler(interval_max_multiplier=1.5, hold_max_multiplier=2)
+    executor = MacroExecutor(keyboard, compiler)
+    with pytest.raises(ValidationError, match="60 seconds"):
+        executor.execute(steps)
+    assert keyboard.sessions == 0
+    assert keyboard.reports == []
+
+
+def test_random_timing_duration_at_limit_and_above():
+    compiler = MacroCompiler(
+        interval_ms=100, hold_ms=100, interval_max_multiplier=3, hold_max_multiplier=2
+    )
+    assert compiler.compile([{"type": "text", "value": "a" * 120}])
+    with pytest.raises(ValidationError, match="60 seconds"):
+        compiler.compile([{"type": "text", "value": "a" * 121}])

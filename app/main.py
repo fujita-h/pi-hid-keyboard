@@ -28,6 +28,8 @@ def create_app(config=None, *, keyboard=None):
         HID_DEVICE=os.environ.get("KEYBRIDGE_HID_DEVICE", "/dev/hidg0"),
         KEY_INTERVAL_MS=os.environ.get("KEYBRIDGE_KEY_INTERVAL_MS", "20"),
         KEY_HOLD_MS=os.environ.get("KEYBRIDGE_KEY_HOLD_MS", "20"),
+        KEY_INTERVAL_MAX_MULTIPLIER=os.environ.get("KEYBRIDGE_KEY_INTERVAL_MAX_MULTIPLIER", "1.0"),
+        KEY_HOLD_MAX_MULTIPLIER=os.environ.get("KEYBRIDGE_KEY_HOLD_MAX_MULTIPLIER", "1.0"),
         SESSION_COOKIE_NAME="keybridge_session",
         SESSION_COOKIE_HTTPONLY=True,
         SESSION_COOKIE_SAMESITE="Strict",
@@ -47,10 +49,15 @@ def create_app(config=None, *, keyboard=None):
         raise RuntimeError("KEYBRIDGE_SECRET_KEY must contain at least 32 characters")
 
     compiler = MacroCompiler(
-        interval_ms=float(app.config["KEY_INTERVAL_MS"]), hold_ms=float(app.config["KEY_HOLD_MS"])
+        interval_ms=float(app.config["KEY_INTERVAL_MS"]),
+        hold_ms=float(app.config["KEY_HOLD_MS"]),
+        interval_max_multiplier=float(app.config["KEY_INTERVAL_MAX_MULTIPLIER"]),
+        hold_max_multiplier=float(app.config["KEY_HOLD_MAX_MULTIPLIER"]),
     )
     keyboard = keyboard or HIDKeyboard(
-        app.config["HID_DEVICE"], hold_ms=float(app.config["KEY_HOLD_MS"])
+        app.config["HID_DEVICE"],
+        hold_ms=float(app.config["KEY_HOLD_MS"]),
+        hold_max_multiplier=float(app.config["KEY_HOLD_MAX_MULTIPLIER"]),
     )
     manager = ConfigManager(app.config["CONFIG_PATH"], compiler)
     executor = MacroExecutor(keyboard, compiler)

@@ -307,3 +307,39 @@ def test_secure_defaults_fail_closed(tmp_path, monkeypatch):
         monkeypatch.delenv(name, raising=False)
     with pytest.raises(RuntimeError, match="credentials"):
         create_app({"CONFIG_PATH": tmp_path / "macros.json"})
+
+
+def test_timing_multipliers_from_environment_reach_validation_and_keyboard(app, monkeypatch):
+    monkeypatch.setenv("KEYBRIDGE_KEY_HOLD_MAX_MULTIPLIER", "1.5")
+    monkeypatch.setenv("KEYBRIDGE_KEY_INTERVAL_MAX_MULTIPLIER", "2.0")
+    config = dict(app.config)
+    config.pop("KEY_HOLD_MAX_MULTIPLIER")
+    config.pop("KEY_INTERVAL_MAX_MULTIPLIER")
+    config["KEY_INTERVAL_MS"] = 20
+    fresh = create_app(config)
+    compiler = fresh.extensions["macro_executor"].compiler
+    keyboard = fresh.extensions["keyboard"]
+    assert compiler.hold_timing.seconds == keyboard.hold_timing.seconds == 0.02
+    assert compiler.hold_timing.max_seconds == keyboard.hold_timing.max_seconds == 0.03
+    assert compiler.interval_timing.seconds == 0.02
+    assert compiler.interval_timing.max_seconds == 0.04
+
+
+def test_existing_environment_without_multipliers_keeps_fixed_timings(app, monkeypatch):
+    config = dict(app.config)
+    for setting in ("KEY_HOLD_MAX_MULTIPLIER", "KEY_INTERVAL_MAX_MULTIPLIER"):
+        config.pop(setting)
+        monkeypatch.delenv("KEYBRIDGE_" + setting, raising=False)
+    config["KEY_INTERVAL_MS"] = 20
+    fresh = create_app(config)
+    compiler = fresh.extensions["macro_executor"].compiler
+    keyboard = fresh.extensions["keyboard"]
+    for timing in (compiler.hold_timing, compiler.interval_timing, keyboard.hold_timing):
+        assert timing.seconds == timing.max_seconds == timing.sample() == 0.02
+
+
+@pytest.mark.parametrize("setting", ["KEY_HOLD_MAX_MULTIPLIER", "KEY_INTERVAL_MAX_MULTIPLIER"])
+@pytest.mark.parametrize("value", ["0.5", "nan", "inf", "invalid", "100"])
+def test_invalid_timing_multiplier_prevents_startup(app, setting, value):
+    with pytest.raises(ValueError):
+        create_app({**app.config, "KEY_INTERVAL_MS": 20, setting: value})

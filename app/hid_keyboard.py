@@ -12,6 +12,8 @@ import stat
 import time
 from pathlib import Path
 
+from app.key_timing import KeyTiming
+
 log = logging.getLogger(__name__)
 RELEASE_REPORT = bytes(8)
 
@@ -154,12 +156,13 @@ class HIDKeyboard:
         device="/dev/hidg0",
         *,
         hold_ms=20,
+        hold_max_multiplier=1.0,
         write_timeout=1.0,
         udc_root="/sys/class/udc",
         sleep=time.sleep,
     ):
         self.device = Path(device)
-        self.hold_seconds = hold_ms / 1000
+        self.hold_timing = KeyTiming(hold_ms, hold_max_multiplier)
         self.write_timeout = write_timeout
         self.udc_root = Path(udc_root)
         self.sleep = sleep
@@ -237,7 +240,7 @@ class HIDKeyboard:
     def tap(self, report):
         try:
             self._write(report)
-            self.sleep(self.hold_seconds)
+            self.sleep(self.hold_timing.sample())
         except BaseException:
             self._release_after_error()
             raise

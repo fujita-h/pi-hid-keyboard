@@ -31,6 +31,8 @@ def main():
         f"KEYBRIDGE_SECRET_KEY='{secrets.token_hex(32)}'\n"
         "KEYBRIDGE_KEY_INTERVAL_MS=20\n"
         "KEYBRIDGE_KEY_HOLD_MS=20\n"
+        "KEYBRIDGE_KEY_INTERVAL_MAX_MULTIPLIER=1.0\n"
+        "KEYBRIDGE_KEY_HOLD_MAX_MULTIPLIER=1.0\n"
     )
     args.output.parent.mkdir(parents=True, exist_ok=True)
     fd, name = tempfile.mkstemp(prefix=".keybridge-auth-", dir=args.output.parent)

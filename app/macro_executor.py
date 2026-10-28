@@ -1,11 +1,11 @@
 """Validate/compile a whole macro before sending its first keystroke."""
 
-import math
 import threading
 import time
 from dataclasses import dataclass
 
 from app.hid_keyboard import KeyMappingError, USLayout
+from app.key_timing import KeyTiming
 
 
 class ValidationError(ValueError):
@@ -25,18 +25,25 @@ class Operation:
 class MacroCompiler:
     MAX_SECONDS = 60
 
-    def __init__(self, layout=None, *, interval_ms=20, hold_ms=20):
-        if any(not math.isfinite(x) or not 0 <= x <= 1000 for x in (interval_ms, hold_ms)):
-            raise ValueError("Key timing must be between 0 and 1000 ms")
+    def __init__(
+        self,
+        layout=None,
+        *,
+        interval_ms=20,
+        hold_ms=20,
+        interval_max_multiplier=1.0,
+        hold_max_multiplier=1.0,
+    ):
         self.layout = layout or USLayout()
-        self.interval_seconds = interval_ms / 1000
-        self.hold_seconds = hold_ms / 1000
+        self.interval_timing = KeyTiming(interval_ms, interval_max_multiplier)
+        self.hold_timing = KeyTiming(hold_ms, hold_max_multiplier)
 
     def compile(self, steps):
         if not isinstance(steps, list) or not 1 <= len(steps) <= 500:
             raise ValidationError("steps must contain 1–500 operations")
         result = []
         duration = 0
+        max_key_seconds = self.interval_timing.max_seconds + self.hold_timing.max_seconds
         for index, step in enumerate(steps):
             try:
                 if not isinstance(step, dict):
@@ -54,12 +61,12 @@ class MacroCompiler:
                     else:
                         reports = [self.layout.key(step["value"])]
                     result.extend(Operation(report=r) for r in reports)
-                    duration += len(reports) * (self.interval_seconds + self.hold_seconds)
+                    duration += len(reports) * max_key_seconds
                 elif kind == "combo":
                     if set(step) != {"type", "keys"}:
                         raise ValidationError("combo requires only type and keys")
                     result.append(Operation(report=self.layout.combo(step["keys"])))
-                    duration += self.interval_seconds + self.hold_seconds
+                    duration += max_key_seconds
                 elif kind == "delay":
                     if (
                         set(step) != {"type", "ms"}
@@ -98,7 +105,7 @@ class MacroExecutor:
                 for op in operations:
                     if op.report is not None:
                         self.keyboard.tap(op.report)
-                        self.sleep(self.compiler.interval_seconds)
+                        self.sleep(self.compiler.interval_timing.sample())
                     else:
                         self.sleep(op.delay)
         finally:

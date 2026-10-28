@@ -348,7 +348,7 @@ overlayの指定は[Raspberry Piの定義](https://github.com/raspberrypi/firmwa
 - UTF-8 JSON（BOMも可）、最大256 KiB、最大100マクロ。`macros: []` も有効。
 - `id`: 重複不可、英数字・`_`・`-` の1–64文字。`label`: 空白だけではない1–100文字。
 - 1マクロ1–500ステップ、1text最大10000文字、合計最大10000キー操作。
-- 押下時間・入力間隔・delayを合わせた予定実行時間は60秒以内。USB I/O待ち時間は別枠。
+- 押下時間・入力間隔・delayを合わせた予定実行時間は60秒以内。揺らぎを使う場合は、各待機の最大値で検証。USB I/O待ち時間は別枠。
 - 不明フィールド、重複JSONフィールド、未知の操作、無効なキー、未対応文字は拒否。
 
 検証後、同じディレクトリの0600一時ファイルへ書き、`fsync` と `os.replace` で置換します。
@@ -398,11 +398,32 @@ sudo journalctl -u keybridge-web -f
 | `KEYBRIDGE_SECRET_KEY` | 生成した64桁ランダム16進文字列。認証Cookie・CSRF署名用 |
 | `KEYBRIDGE_KEY_INTERVAL_MS` | `20`、キー解放後の待ち時間 |
 | `KEYBRIDGE_KEY_HOLD_MS` | `20`、キー押下の維持時間 |
+| `KEYBRIDGE_KEY_INTERVAL_MAX_MULTIPLIER` | `1.0`、入力間隔の上限倍率 |
+| `KEYBRIDGE_KEY_HOLD_MAX_MULTIPLIER` | `1.0`、押下維持時間の上限倍率 |
 | `KEYBRIDGE_CONFIG` | 省略時 `/opt/keybridge/data/macros.json` |
 | `KEYBRIDGE_HID_DEVICE` | 省略時 `/dev/hidg0` |
 
-初期値は押下20 ms + 解放後20 msで約25文字/秒。時間設定は0–1000 msです。
-時間変更で既存マクロが60秒上限を超えた場合は起動時にエラーになります。認証設定がない、署名鍵が短い場合も起動しません。
+初期値は押下20 ms + 解放後20 msで約25文字/秒。単位はミリ秒（20 ms = 0.02秒）です。
+上限倍率を `1.5` にすると、基準値が20 msの場合は20–30 msの範囲から一様ランダムに待機時間を選びます。文字・単独キー・コンボごとに、押下時間と解放後の間隔をそれぞれ独立して選び直します。`delay` ステップは指定どおりの固定時間です。倍率 `1.0` は従来どおり固定で、変数がない既存設定も `1.0` として動作します。基準値が0 msなら、倍率にかかわらず0 msです。
+
+Pi上で `sudoedit /etc/keybridge/keybridge.env` を実行し、例えば次のようにタイミング設定を編集・追記します。認証情報はそのまま残してください。
+
+```ini
+KEYBRIDGE_KEY_HOLD_MS=20
+KEYBRIDGE_KEY_HOLD_MAX_MULTIPLIER=1.5
+KEYBRIDGE_KEY_INTERVAL_MS=20
+KEYBRIDGE_KEY_INTERVAL_MAX_MULTIPLIER=2.0
+```
+
+この例では押下時間が20–30 ms、解放後の間隔が20–40 msになります。保存後、Pi上で反映します。
+
+```bash
+# Pi
+sudo systemctl restart keybridge-web
+```
+
+基準値は0–1000 ms、倍率は `1.0` 以上の有限数で、基準値×倍率も1000 ms以内にしてください。実際の間隔にはUSB通信やOSの実行待ちも加わります。
+時間・倍率の変更で既存マクロが最大値で60秒上限を超えた場合は起動時にエラーになります。認証設定がない、署名鍵が短い場合も起動しません。
 
 認証の再設定:
 
@@ -561,6 +582,7 @@ app/
   main.py                 Flask・認証・CSRF・API
   hid_keyboard.py         USキー変換・8バイトレポート・HID I/O
   macro_executor.py       検証・順次実行・排他
+  key_timing.py            キー待機時間の検証・ランダム化
   config_manager.py       JSON・永続化・アトミック置換
   templates/index.html    操作画面
   static/                 CSS・JavaScript
