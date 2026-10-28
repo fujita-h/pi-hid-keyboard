@@ -15,20 +15,24 @@ def test_missing_file_creates_persistent_sample(tmp_path):
     path = tmp_path / "nested" / "macros.json"
     manager = ConfigManager(path)
     assert path.exists()
-    assert [m["id"] for m in manager.snapshot()["macros"]] == ["hello", "email", "form"]
+    assert [m["id"] for t in manager.snapshot()["tabs"] for m in t["macros"]] == [
+        "hello",
+        "email",
+        "form",
+    ]
     assert ConfigManager(path).snapshot() == manager.snapshot()
 
 
 def test_replacement_round_trip_and_snapshot_independence(tmp_path):
     path = tmp_path / "macros.json"
     manager = ConfigManager(path)
-    raw = b'{"version": 1, "macros": []}\n'
+    raw = b'{"version": 1, "tabs": []}\n'
     manager.import_bytes(raw)
-    assert manager.snapshot() == {"version": 1, "macros": []}
+    assert manager.snapshot() == {"version": 1, "tabs": []}
     assert manager.export_bytes() == path.read_bytes() == raw
     snapshot = manager.snapshot()
-    snapshot["macros"].append({})
-    assert manager.snapshot()["macros"] == []
+    snapshot["tabs"].append({})
+    assert manager.snapshot()["tabs"] == []
     assert path.stat().st_mode & 0o777 == 0o600
 
 
@@ -38,10 +42,11 @@ def test_replacement_round_trip_and_snapshot_independence(tmp_path):
         b"{",
         b"\xff",
         b"[]",
-        b'{"version":true,"macros":[]}',
-        b'{"version":2,"macros":[]}',
-        b'{"version":1,"macros":{},"extra":1}',
-        b'{"version":1,"version":1,"macros":[]}',
+        b'{"version":true,"tabs":[]}',
+        b'{"version":2,"tabs":[]}',
+        b'{"version":1,"tabs":{},"extra":1}',
+        b'{"version":1,"version":1,"tabs":[]}',
+        b'{"version":1,"macros":[]}',
         b"[" * 2000,
         b" " * (MAX_CONFIG_BYTES + 1),
     ],
@@ -69,7 +74,7 @@ def test_invalid_import_preserves_existing_bytes(tmp_path, raw):
 def test_invalid_macro(tmp_path, change):
     manager = ConfigManager(tmp_path / "macros.json")
     config = manager.snapshot()
-    config["macros"][0].update(change)
+    config["tabs"][0]["macros"][0].update(change)
     # ensure_ascii allows invalid-surrogate JSON to reach validation.
     with pytest.raises(ValidationError):
         manager.import_bytes(json.dumps(config).encode())
@@ -78,7 +83,7 @@ def test_invalid_macro(tmp_path, change):
 def test_duplicate_ids_are_rejected(tmp_path):
     manager = ConfigManager(tmp_path / "macros.json")
     config = manager.snapshot()
-    config["macros"][1]["id"] = config["macros"][0]["id"]
+    config["tabs"][0]["macros"][1]["id"] = config["tabs"][0]["macros"][0]["id"]
     with pytest.raises(ValidationError, match="Duplicate macro id"):
         manager.import_bytes(encode(config))
 
@@ -92,7 +97,7 @@ def test_failed_atomic_replace_keeps_previous_config(tmp_path, monkeypatch):
 
     monkeypatch.setattr(os, "replace", fail)
     with pytest.raises(OSError):
-        manager.import_bytes(b'{"version":1,"macros":[]}')
+        manager.import_bytes(b'{"version":1,"tabs":[]}')
     assert manager.export_bytes() == manager.path.read_bytes() == before
     assert list(tmp_path.glob(".macros-*")) == []
 
@@ -103,3 +108,108 @@ def test_corrupt_startup_file_is_not_silently_overwritten(tmp_path):
     with pytest.raises(ValidationError):
         ConfigManager(path)
     assert path.read_bytes() == b"{broken"
+
+
+@pytest.mark.parametrize("tabs", [None, {}, "tabs", 3, False])
+def test_tabs_must_be_an_array(tmp_path, tabs):
+    manager = ConfigManager(tmp_path / "macros.json")
+    with pytest.raises(ValidationError, match="tabs must be an array"):
+        manager.import_bytes(encode({"version": 1, "tabs": tabs}))
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        {"id": "../tab"},
+        {"label": ""},
+        {"label": "\ud800"},
+        {"label": "line\nbreak"},
+        {"label": "x" * 101},
+        {"macros": {}},
+        {"extra": 1},
+    ],
+)
+def test_invalid_visible_tab_preserves_existing_configuration(tmp_path, change):
+    manager = ConfigManager(tmp_path / "macros.json")
+    raw = manager.export_bytes()
+    config = manager.snapshot()
+    config["tabs"][0].update(change)
+    with pytest.raises(ValidationError, match=r"tabs\[0\]"):
+        manager.import_bytes(json.dumps(config).encode())
+    assert manager.export_bytes() == manager.path.read_bytes() == raw
+
+
+def test_tab_ids_and_macro_ids_across_tabs_must_be_unique(tmp_path):
+    manager = ConfigManager(tmp_path / "macros.json")
+    config = manager.snapshot()
+    config["tabs"][1]["id"] = config["tabs"][0]["id"]
+    with pytest.raises(ValidationError, match="Duplicate tab id"):
+        manager.import_bytes(encode(config))
+    config = manager.snapshot()
+    config["tabs"][1]["macros"][0]["id"] = config["tabs"][0]["macros"][0]["id"]
+    with pytest.raises(ValidationError, match="Duplicate macro id"):
+        manager.import_bytes(encode(config))
+
+
+def test_each_tab_is_limited_to_one_hundred_macros(tmp_path):
+    manager = ConfigManager(tmp_path / "macros.json")
+    config = manager.snapshot()
+    config["tabs"][0]["macros"] = [
+        {"id": f"m{i}", "label": str(i), "steps": [{"type": "key", "value": "A"}]}
+        for i in range(101)
+    ]
+    with pytest.raises(ValidationError, match="at most 100"):
+        manager.import_bytes(encode(config))
+
+
+@pytest.mark.parametrize(
+    "ignored",
+    [None, {"invalid": "not a tab"}, {"id": "bad", "label": "Bad", "macros": [{"invalid": True}]}],
+)
+def test_fourth_and_later_tabs_are_ignored_without_losing_uploaded_bytes(tmp_path, ignored):
+    path = tmp_path / "macros.json"
+    manager = ConfigManager(path)
+    config = manager.snapshot()
+    config["tabs"].append({"id": "empty", "label": "空", "macros": []})
+    visible = manager.parse(encode(config))
+    config["tabs"].extend([ignored, {"id": "also-ignored"}])
+    raw = encode(config)
+    manager.import_bytes(raw)
+    assert manager.snapshot() == visible
+    assert manager.export_bytes() == path.read_bytes() == raw
+    assert ConfigManager(path).snapshot() == visible
+    assert ConfigManager(path).export_bytes() == raw
+
+
+def test_empty_tab_and_no_tabs_are_valid(tmp_path):
+    manager = ConfigManager(tmp_path / "macros.json")
+    config = {"version": 1, "tabs": [{"id": "empty", "label": "空", "macros": []}]}
+    manager.import_bytes(encode(config))
+    assert manager.snapshot() == config
+    assert manager.get_macro("hello") is None
+    manager.import_bytes(encode({"version": 1, "tabs": []}))
+    assert manager.snapshot()["tabs"] == []
+
+
+def test_visible_tab_limit_can_be_changed_in_one_place(tmp_path, monkeypatch):
+    manager = ConfigManager(tmp_path / "macros.json")
+    config = manager.snapshot()
+    config["tabs"].extend(
+        [
+            {"id": "third", "label": "3", "macros": []},
+            {
+                "id": "fourth",
+                "label": "4",
+                "macros": [
+                    {"id": "hidden", "label": "4", "steps": [{"type": "key", "value": "A"}]}
+                ],
+            },
+        ]
+    )
+    raw = encode(config)
+    manager.import_bytes(raw)
+    assert manager.get_macro("hidden") is None
+    monkeypatch.setattr("app.config_manager.MAX_VISIBLE_TABS", 4)
+    manager.import_bytes(raw)
+    assert len(manager.snapshot()["tabs"]) == 4
+    assert manager.get_macro("hidden")["id"] == "hidden"

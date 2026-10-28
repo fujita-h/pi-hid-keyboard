@@ -35,8 +35,43 @@ footer { margin-top: 48px; }
 
 .input-only main {
   max-width: none;
-  padding: max(8px, env(safe-area-inset-top)) max(8px, env(safe-area-inset-right)) max(100px, calc(80px + env(safe-area-inset-bottom))) max(8px, env(safe-area-inset-left));
+  height: 100vh;
+  height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: max(8px, env(safe-area-inset-top)) max(8px, env(safe-area-inset-right)) max(8px, env(safe-area-inset-bottom)) max(8px, env(safe-area-inset-left));
 }
+.input-only { height: 100%; overflow: hidden; }
+.tab-bar {
+  display: flex;
+  gap: 6px;
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  padding: 6px 0;
+  background: var(--bg);
+}
+.tab-bar[hidden] { display: none; }
+.macro-tab {
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: 44px;
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--muted);
+  font-size: .875rem;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.macro-tab[aria-selected="true"] { border-color: var(--accent); color: var(--accent); box-shadow: inset 0 -2px var(--accent); }
+.macro-content { max-height: 65vh; max-height: 65dvh; overflow-y: auto; overscroll-behavior-y: contain; }
+.input-only .tab-bar { flex: 0 0 auto; padding-top: 0; }
+.input-only .macro-content { flex: 1; min-height: 0; max-height: none; padding: 2px 2px 90px; }
 .compact-grid { display: flex; flex-wrap: wrap; gap: 6px; }
 .input-only .macro {
   flex: 1 1 104px;

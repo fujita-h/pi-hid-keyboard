@@ -144,7 +144,9 @@ def test_index_macros_status_and_security_headers(client, headers):
     assert response.headers["X-Frame-Options"] == "DENY"
     assert "no-store" in response.headers["Cache-Control"]
     assert "script-src 'self'" in response.headers["Content-Security-Policy"]
-    macros = client.get("/api/macros", headers=headers).json["macros"]
+    tabs = client.get("/api/macros", headers=headers).json["tabs"]
+    assert [t["id"] for t in tabs] == ["common", "forms"]
+    macros = [m for tab in tabs for m in tab["macros"]]
     assert [m["id"] for m in macros] == ["hello", "email", "form"]
     assert "steps" not in macros[0]
     assert client.get("/api/status", headers=headers).json["busy"] is False
@@ -170,16 +172,68 @@ def test_input_only_page_keeps_authenticated_execution_without_settings(client, 
 
 
 def test_hundred_macros_preserve_json_order_and_only_expose_button_metadata(client, headers, app):
-    macros = [
-        {"id": f"macro-{i}", "label": f"定型入力 {i}", "steps": [{"type": "key", "value": "A"}]}
-        for i in reversed(range(100))
+    tabs = [
+        {
+            "id": f"tab-{n}",
+            "label": f"分類 {n}",
+            "macros": [
+                {
+                    "id": f"macro-{n}-{i}",
+                    "label": f"定型入力 {i}",
+                    "steps": [{"type": "key", "value": "A"}],
+                }
+                for i in reversed(range(100))
+            ],
+        }
+        for n in (2, 1, 0)
     ]
-    app.extensions["config_manager"].import_bytes(
-        json.dumps({"version": 1, "macros": macros}).encode()
-    )
+    app.extensions["config_manager"].import_bytes(json.dumps({"version": 1, "tabs": tabs}).encode())
     response = client.get("/api/macros", headers=headers)
     assert response.status_code == 200
-    assert response.json["macros"] == [{"id": m["id"], "label": m["label"]} for m in macros]
+    assert response.json == {
+        "version": 1,
+        "tabs": [
+            {
+                "id": t["id"],
+                "label": t["label"],
+                "macros": [{"id": m["id"], "label": m["label"]} for m in t["macros"]],
+            }
+            for t in tabs
+        ],
+    }
+
+
+def test_fourth_tab_is_preserved_in_export_but_not_listed_or_executable(
+    client, headers, app, keyboard
+):
+    tabs = app.extensions["config_manager"].snapshot()["tabs"]
+    tabs.extend(
+        [
+            {"id": "third", "label": "空のタブ", "macros": []},
+            {
+                "id": "ignored",
+                "label": "非表示",
+                "macros": [
+                    {"id": "hidden", "label": "非表示", "steps": [{"type": "key", "value": "B"}]}
+                ],
+            },
+        ]
+    )
+    raw = json.dumps({"version": 1, "tabs": tabs}).encode()
+    response = client.post(
+        "/api/config/import", headers=headers, data={"file": (io.BytesIO(raw), "tabs.json")}
+    )
+    assert response.status_code == 200
+    assert response.json == {"ok": True, "count": 3, "tab_count": 3}
+    assert [t["id"] for t in client.get("/api/macros", headers=headers).json["tabs"]] == [
+        "common",
+        "forms",
+        "third",
+    ]
+    assert client.get("/api/config/export", headers=headers).data == raw
+    assert client.post("/api/macros/hidden/execute", headers=headers).status_code == 404
+    assert client.post("/api/macros/form/execute", headers=headers).status_code == 200
+    assert keyboard.reports
 
 
 @pytest.mark.parametrize("path", ["/api/macros/hello/execute", "/api/config/import"])
@@ -216,17 +270,17 @@ def test_execute_registered_macro_only(client, headers, keyboard):
 
 
 def test_import_export_exact_bytes_and_restarts(client, headers, app, keyboard):
-    raw = b'{ "version": 1, "macros": [] }\n'
+    raw = b'{ "version": 1, "tabs": [] }\n'
     response = client.post(
         "/api/config/import", headers=headers, data={"file": (io.BytesIO(raw), "macros.json")}
     )
     assert response.status_code == 200
-    assert client.get("/api/macros", headers=headers).json["macros"] == []
+    assert client.get("/api/macros", headers=headers).json["tabs"] == []
     exported = client.get("/api/config/export", headers=headers)
     assert exported.data == raw
     assert "filename=macros.json" in exported.headers["Content-Disposition"]
     fresh = create_app(dict(app.config), keyboard=keyboard)
-    assert fresh.extensions["config_manager"].snapshot()["macros"] == []
+    assert fresh.extensions["config_manager"].snapshot()["tabs"] == []
 
 
 @pytest.mark.parametrize(("name", "raw"), [("wrong.txt", b"{}"), ("macros.json", b"{bad")])
@@ -251,7 +305,7 @@ def test_oversized_upload_and_missing_file(client, headers):
 
 @pytest.mark.parametrize("size", [32 * 1024, 256 * 1024, 256 * 1024 + 1])
 def test_upload_accepts_full_documented_file_limit(client, headers, size):
-    value = b'{"version":1,"macros":[]}'
+    value = b'{"version":1,"tabs":[]}'
     raw = b" " * (size - len(value)) + value
     before = client.get("/api/config/export", headers=headers).data
     response = client.post(
@@ -273,8 +327,8 @@ def test_duplicate_file_fields_are_rejected(client, headers):
         headers=headers,
         data=MultiDict(
             [
-                ("file", (io.BytesIO(b'{"version":1,"macros":[]}'), "a.json")),
-                ("file", (io.BytesIO(b'{"version":1,"macros":[]}'), "b.json")),
+                ("file", (io.BytesIO(b'{"version":1,"tabs":[]}'), "a.json")),
+                ("file", (io.BytesIO(b'{"version":1,"tabs":[]}'), "b.json")),
             ]
         ),
     )
@@ -312,7 +366,7 @@ def test_storage_error_does_not_replace_live_config(client, headers, app, monkey
     response = client.post(
         "/api/config/import",
         headers=headers,
-        data={"file": (io.BytesIO(b'{"version":1,"macros":[]}'), "x.json")},
+        data={"file": (io.BytesIO(b'{"version":1,"tabs":[]}'), "x.json")},
     )
     assert response.status_code == 500
     assert manager.export_bytes() == before
@@ -321,11 +375,17 @@ def test_storage_error_does_not_replace_live_config(client, headers, app, monkey
 def test_unsafe_label_is_kept_as_data(client, headers):
     config = {
         "version": 1,
-        "macros": [
+        "tabs": [
             {
-                "id": "x",
-                "label": "<script>alert(1)</script>",
-                "steps": [{"type": "key", "value": "A"}],
+                "id": "test",
+                "label": "<b>タブ名</b>",
+                "macros": [
+                    {
+                        "id": "x",
+                        "label": "<script>alert(1)</script>",
+                        "steps": [{"type": "key", "value": "A"}],
+                    }
+                ],
             }
         ],
     }
@@ -337,7 +397,9 @@ def test_unsafe_label_is_kept_as_data(client, headers):
     assert response.status_code == 200
     assert b"<script>alert" not in client.get("/", headers=headers).data
     assert (
-        client.get("/api/macros", headers=headers).json["macros"][0]["label"].startswith("<script>")
+        client.get("/api/macros", headers=headers)
+        .json["tabs"][0]["macros"][0]["label"]
+        .startswith("<script>")
     )
 
 

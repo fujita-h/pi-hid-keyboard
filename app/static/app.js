@@ -1,6 +1,8 @@
 "use strict";
 
 const grid = document.querySelector("#macros");
+const tabBar = document.querySelector("#tabs");
+const macroPanel = document.querySelector("#macro-panel");
 const message = document.querySelector("#message");
 const connection = document.querySelector("#connection");
 const fileInput = document.querySelector("#file");
@@ -11,6 +13,9 @@ let localBusy = false;
 let remoteBusy = false;
 let ready = false;
 let toastTimer;
+let macroTabs = [];
+let activeTab = -1;
+const tabScrollPositions = new Map();
 
 function notify(text, error = false, persistent = false) {
   window.clearTimeout(toastTimer);
@@ -74,10 +79,9 @@ async function refreshStatus() {
   updateButtons();
 }
 
-async function loadMacros() {
-  const data = await api("/api/macros");
+function renderMacros(macros) {
   grid.replaceChildren();
-  for (const macro of data.macros) {
+  for (const macro of macros) {
     const button = document.createElement("button");
     button.type = "button";
     button.className = "macro";
@@ -92,10 +96,61 @@ async function loadMacros() {
     button.addEventListener("click", () => executeMacro(macro));
     grid.append(button);
   }
-  document.querySelector("#empty").hidden = data.macros.length !== 0;
+  const empty = document.querySelector("#empty");
+  empty.hidden = macros.length !== 0;
+  if (!macroTabs.length) empty.textContent = "登録されているタブがありません。";
+  else empty.textContent = "このタブにマクロはありません。";
   const count = document.querySelector("#macro-count");
-  if (count) count.textContent = `${data.macros.length} 件`;
+  if (count) count.textContent = `${macros.length} 件`;
   updateButtons();
+}
+
+function selectTab(index) {
+  if (activeTab >= 0) {
+    tabScrollPositions.set(macroTabs[activeTab].id, macroPanel.scrollTop);
+  }
+  activeTab = index;
+  for (const [i, button] of [...tabBar.children].entries()) {
+    button.setAttribute("aria-selected", String(i === index));
+    button.tabIndex = i === index ? 0 : -1;
+  }
+  macroPanel.setAttribute("aria-labelledby", `macro-tab-${index}`);
+  renderMacros(macroTabs[index].macros);
+  macroPanel.scrollTop = tabScrollPositions.get(macroTabs[index].id) || 0;
+}
+
+async function loadMacros() {
+  const data = await api("/api/macros");
+  macroTabs = data.tabs;
+  activeTab = -1;
+  tabScrollPositions.clear();
+  tabBar.replaceChildren();
+  tabBar.hidden = macroTabs.length === 0;
+  macroPanel.removeAttribute("aria-labelledby");
+  for (const [index, tab] of macroTabs.entries()) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "macro-tab";
+    button.id = `macro-tab-${index}`;
+    button.textContent = tab.label;
+    button.setAttribute("role", "tab");
+    button.setAttribute("aria-controls", "macro-panel");
+    button.addEventListener("click", () => selectTab(index));
+    button.addEventListener("keydown", (event) => {
+      let next;
+      if (event.key === "ArrowRight") next = (index + 1) % macroTabs.length;
+      else if (event.key === "ArrowLeft") next = (index - 1 + macroTabs.length) % macroTabs.length;
+      else if (event.key === "Home") next = 0;
+      else if (event.key === "End") next = macroTabs.length - 1;
+      else return;
+      event.preventDefault();
+      selectTab(next);
+      tabBar.children[next].focus();
+    });
+    tabBar.append(button);
+  }
+  if (macroTabs.length) selectTab(0);
+  else renderMacros([]);
 }
 
 async function executeMacro(macro) {

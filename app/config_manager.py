@@ -11,6 +11,9 @@ from pathlib import Path
 from app.macro_executor import MacroCompiler, ValidationError
 
 MAX_CONFIG_BYTES = 256 * 1024
+# The API exposes only these tabs, so the browser needs no separate limit.
+MAX_VISIBLE_TABS = 3
+MAX_MACROS_PER_TAB = 100
 SAMPLE_PATH = Path(__file__).resolve().parent.parent / "data" / "macros.example.json"
 
 
@@ -21,6 +24,21 @@ def _unique_object(pairs):
             raise ValidationError(f"Duplicate JSON field: {key}")
         obj[key] = value
     return obj
+
+
+def _validate_id(value):
+    if not isinstance(value, str) or not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", value):
+        raise ValidationError("id must be 1–64 ASCII letters, digits, _ or -")
+
+
+def _validate_label(value):
+    if (
+        not isinstance(value, str)
+        or not value.strip()
+        or len(value) > 100
+        or any(ord(c) < 32 or 0xD800 <= ord(c) <= 0xDFFF for c in value)
+    ):
+        raise ValidationError("label must contain 1–100 displayable characters")
 
 
 class ConfigManager:
@@ -43,39 +61,50 @@ class ConfigManager:
             raise ValidationError(f"Invalid UTF-8 JSON: {exc}") from exc
         if (
             not isinstance(config, dict)
-            or set(config) != {"version", "macros"}
+            or set(config) != {"version", "tabs"}
             or type(config["version"]) is not int
             or config["version"] != 1
         ):
-            raise ValidationError("Configuration requires version: 1 and macros")
-        macros = config["macros"]
-        if not isinstance(macros, list) or len(macros) > 100:
-            raise ValidationError("macros must be an array with at most 100 entries")
-        ids = set()
+            raise ValidationError("Configuration requires version: 1 and tabs")
+        if not isinstance(config["tabs"], list):
+            raise ValidationError("tabs must be an array")
+        # Keep the original bytes for export, including ignored tabs. Only the
+        # visible prefix is validated, listed, and available for execution.
+        config["tabs"] = config["tabs"][:MAX_VISIBLE_TABS]
+        tab_ids = set()
+        macro_ids = set()
+        for index, tab in enumerate(config["tabs"]):
+            try:
+                if not isinstance(tab, dict) or set(tab) != {"id", "label", "macros"}:
+                    raise ValidationError("Tab requires only id, label and macros")
+                _validate_id(tab["id"])
+                _validate_label(tab["label"])
+                if tab["id"] in tab_ids:
+                    raise ValidationError("Duplicate tab id")
+                tab_ids.add(tab["id"])
+                self._validate_macros(tab["macros"], macro_ids)
+            except ValidationError as exc:
+                raise ValidationError(f"tabs[{index}]: {exc}") from exc
+        return config
+
+    def _validate_macros(self, macros, ids):
+        if not isinstance(macros, list) or len(macros) > MAX_MACROS_PER_TAB:
+            raise ValidationError(
+                f"macros must be an array with at most {MAX_MACROS_PER_TAB} entries"
+            )
         for index, macro in enumerate(macros):
             try:
                 if not isinstance(macro, dict) or set(macro) != {"id", "label", "steps"}:
                     raise ValidationError("Macro requires only id, label and steps")
                 macro_id = macro["id"]
-                if not isinstance(macro_id, str) or not re.fullmatch(
-                    r"[A-Za-z0-9_-]{1,64}", macro_id
-                ):
-                    raise ValidationError("id must be 1–64 ASCII letters, digits, _ or -")
+                _validate_id(macro_id)
                 if macro_id in ids:
                     raise ValidationError("Duplicate macro id")
                 ids.add(macro_id)
-                label = macro["label"]
-                if (
-                    not isinstance(label, str)
-                    or not label.strip()
-                    or len(label) > 100
-                    or any(ord(c) < 32 or 0xD800 <= ord(c) <= 0xDFFF for c in label)
-                ):
-                    raise ValidationError("label must contain 1–100 displayable characters")
+                _validate_label(macro["label"])
                 self.compiler.compile(macro["steps"])
             except ValidationError as exc:
                 raise ValidationError(f"macros[{index}]: {exc}") from exc
-        return config
 
     def import_bytes(self, raw):
         config = self.parse(raw)
@@ -111,5 +140,11 @@ class ConfigManager:
     def get_macro(self, macro_id):
         with self._lock:
             return next(
-                (copy.deepcopy(m) for m in self._config["macros"] if m["id"] == macro_id), None
+                (
+                    copy.deepcopy(m)
+                    for tab in self._config["tabs"]
+                    for m in tab["macros"]
+                    if m["id"] == macro_id
+                ),
+                None,
             )

@@ -11,8 +11,11 @@
 </head>
 <body class="input-only">
   <main aria-label="定型入力">
-    <div id="macros" class="compact-grid" aria-label="マクロ" aria-busy="true"></div>
-    <p id="empty" hidden>登録されているマクロがありません。</p>
+    <div id="tabs" class="tab-bar" role="tablist" aria-label="マクログループ"></div>
+    <div id="macro-panel" class="macro-content" role="tabpanel" tabindex="0">
+      <div id="macros" class="compact-grid" aria-label="マクロ" aria-busy="true"></div>
+      <p id="empty" hidden>このタブにマクロはありません。</p>
+    </div>
     <noscript><p>この操作画面にはJavaScriptが必要です。</p></noscript>
   </main>
   <p id="message" class="toast" role="status" aria-live="polite" aria-atomic="true" data-visible="true">マクロを読み込み中…</p>

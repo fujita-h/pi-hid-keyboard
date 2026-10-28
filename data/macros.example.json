@@ -1,30 +1,77 @@
 {
   "version": 1,
-  "macros": [
+  "tabs": [
     {
-      "id": "hello",
-      "label": "Hello World",
-      "steps": [{"type": "text", "value": "Hello World!"}]
-    },
-    {
-      "id": "email",
-      "label": "メールアドレス",
-      "steps": [
-        {"type": "text", "value": "example@example.com"},
-        {"type": "key", "value": "ENTER"}
+      "id": "common",
+      "label": "定型文",
+      "macros": [
+        {
+          "id": "hello",
+          "label": "Hello World",
+          "steps": [
+            {
+              "type": "text",
+              "value": "Hello World!"
+            }
+          ]
+        },
+        {
+          "id": "email",
+          "label": "メールアドレス",
+          "steps": [
+            {
+              "type": "text",
+              "value": "example@example.com"
+            },
+            {
+              "type": "key",
+              "value": "ENTER"
+            }
+          ]
+        }
       ]
     },
     {
-      "id": "form",
-      "label": "フォーム入力",
-      "steps": [
-        {"type": "text", "value": "Sample User"},
-        {"type": "key", "value": "TAB"},
-        {"type": "text", "value": "sample@example.com"},
-        {"type": "key", "value": "TAB"},
-        {"type": "combo", "keys": ["CTRL", "A"]},
-        {"type": "delay", "ms": 300},
-        {"type": "key", "value": "ENTER"}
+      "id": "forms",
+      "label": "フォーム",
+      "macros": [
+        {
+          "id": "form",
+          "label": "フォーム入力",
+          "steps": [
+            {
+              "type": "text",
+              "value": "Sample User"
+            },
+            {
+              "type": "key",
+              "value": "TAB"
+            },
+            {
+              "type": "text",
+              "value": "sample@example.com"
+            },
+            {
+              "type": "key",
+              "value": "TAB"
+            },
+            {
+              "type": "combo",
+              "keys": [
+                "CTRL",
+                "A"
+              ]
+            },
+            {
+              "type": "delay",
+              "ms": 300
+            },
+            {
+              "type": "key",
+              "value": "ENTER"
+            }
+          ]
+        }
       ]
     }
   ]

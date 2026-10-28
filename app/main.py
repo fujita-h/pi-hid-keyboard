@@ -152,7 +152,14 @@ def create_app(config=None, *, keyboard=None):
         # The browser only needs button metadata, not potentially sensitive text.
         return jsonify(
             version=1,
-            macros=[{"id": m["id"], "label": m["label"]} for m in manager.snapshot()["macros"]],
+            tabs=[
+                {
+                    "id": tab["id"],
+                    "label": tab["label"],
+                    "macros": [{"id": m["id"], "label": m["label"]} for m in tab["macros"]],
+                }
+                for tab in manager.snapshot()["tabs"]
+            ],
         )
 
     @app.post("/api/macros/<macro_id>/execute")
@@ -176,7 +183,8 @@ def create_app(config=None, *, keyboard=None):
             raise ValidationError("Select a .json file")
         # The filename is never used as a filesystem path.
         manager.import_bytes(uploaded.stream.read(MAX_CONFIG_BYTES + 1))
-        return jsonify(ok=True, count=len(manager.snapshot()["macros"]))
+        tabs = manager.snapshot()["tabs"]
+        return jsonify(ok=True, count=sum(len(t["macros"]) for t in tabs), tab_count=len(tabs))
 
     @app.get("/api/config/export")
     def export_config():
