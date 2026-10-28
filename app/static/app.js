@@ -6,20 +6,42 @@ const connection = document.querySelector("#connection");
 const fileInput = document.querySelector("#file");
 const importButton = document.querySelector("#import");
 const csrf = document.querySelector('meta[name="csrf-token"]').content;
+const inputOnly = document.body.classList.contains("input-only");
 let localBusy = false;
 let remoteBusy = false;
 let ready = false;
+let toastTimer;
 
-function notify(text, error = false) {
+function notify(text, error = false, persistent = false) {
+  window.clearTimeout(toastTimer);
   message.textContent = text;
   message.dataset.error = String(error);
+  message.dataset.visible = "true";
+  message.dataset.connection = "false";
+  if (inputOnly && !error && !persistent) {
+    toastTimer = window.setTimeout(() => { message.dataset.visible = "false"; }, 3000);
+  }
+}
+
+function showConnection(text) {
+  if (connection) {
+    connection.dataset.ready = String(ready);
+    connection.textContent = text;
+  }
+  if (!inputOnly || localBusy) return;
+  if (!ready || remoteBusy) {
+    if (message.textContent !== text) notify(text, !ready, true);
+    message.dataset.connection = "true";
+  } else if (message.dataset.connection === "true") {
+    notify("操作できます。");
+  }
 }
 
 function updateButtons() {
   for (const button of grid.querySelectorAll("button")) {
     button.disabled = localBusy || remoteBusy || !ready;
   }
-  importButton.disabled = localBusy || remoteBusy;
+  if (importButton) importButton.disabled = localBusy || remoteBusy;
   grid.setAttribute("aria-busy", String(localBusy || remoteBusy));
 }
 
@@ -40,16 +62,14 @@ async function refreshStatus() {
     const status = await api("/api/status");
     ready = status.hid.ready;
     remoteBusy = status.busy;
-    connection.dataset.ready = String(ready);
-    connection.textContent = remoteBusy ? "キー入力を送信中…"
+    showConnection(remoteBusy ? "キー入力を送信中…"
       : !status.hid.device_exists ? "HIDデバイスなし"
       : !status.hid.writable ? "HIDの操作権限なし"
       : status.hid.connected === false ? "USB未接続"
-      : status.hid.connected === null ? "USB接続状態不明" : "USB接続済み";
+      : status.hid.connected === null ? "USB接続状態不明" : "USB接続済み");
   } catch {
     ready = false;
-    connection.dataset.ready = "false";
-    connection.textContent = "サーバーに接続できません";
+    showConnection("サーバーに接続できません");
   }
   updateButtons();
 }
@@ -63,14 +83,18 @@ async function loadMacros() {
     button.className = "macro";
     const label = document.createElement("strong");
     label.textContent = macro.label;
-    const hint = document.createElement("span");
-    hint.textContent = "入力を送信 ↗";
-    button.append(label, hint);
+    button.append(label);
+    if (!inputOnly) {
+      const hint = document.createElement("span");
+      hint.textContent = "入力を送信 ↗";
+      button.append(hint);
+    }
     button.addEventListener("click", () => executeMacro(macro));
     grid.append(button);
   }
   document.querySelector("#empty").hidden = data.macros.length !== 0;
-  document.querySelector("#macro-count").textContent = `${data.macros.length} 件`;
+  const count = document.querySelector("#macro-count");
+  if (count) count.textContent = `${data.macros.length} 件`;
   updateButtons();
 }
 
@@ -78,7 +102,7 @@ async function executeMacro(macro) {
   if (localBusy || remoteBusy || !ready) return;
   localBusy = true;
   updateButtons();
-  notify(`「${macro.label}」を送信中…`);
+  notify(`「${macro.label}」を送信中…`, false, true);
   try {
     await api(`/api/macros/${encodeURIComponent(macro.id)}/execute`, { method: "POST" });
     notify(`「${macro.label}」の送信が完了しました。`);
@@ -90,8 +114,8 @@ async function executeMacro(macro) {
   }
 }
 
-importButton.addEventListener("click", () => fileInput.click());
-fileInput.addEventListener("change", async () => {
+importButton?.addEventListener("click", () => fileInput.click());
+fileInput?.addEventListener("change", async () => {
   const file = fileInput.files[0];
   fileInput.value = "";
   if (!file || localBusy || remoteBusy) return;

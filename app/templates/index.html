@@ -18,7 +18,10 @@
     <p class="intro">ボタンを押すと、USB接続先へキー入力を送信します。<br>
       接続先で、入力したいアプリにフォーカスを合わせてください。</p>
     <section aria-labelledby="macros-title">
-      <div class="section-heading"><h2 id="macros-title">定型入力</h2><span id="macro-count"></span></div>
+      <div class="section-heading">
+        <h2 id="macros-title">定型入力</h2>
+        <div class="view-switch"><span id="macro-count"></span><a href="{{ url_for('input_page') }}" class="secondary">入力専用画面</a></div>
+      </div>
       <div id="macros" class="grid" aria-busy="true"></div>
       <p id="empty" hidden>マクロはまだありません。JSON設定をインポートしてください。</p>
     </section>

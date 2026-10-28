@@ -13,7 +13,7 @@ from app.main import create_app
 
 
 @pytest.mark.parametrize(
-    "path", ["/", "/api/macros", "/api/status", "/api/config/export", "/static/app.js"]
+    "path", ["/", "/input", "/api/macros", "/api/status", "/api/config/export", "/static/app.js"]
 )
 def test_all_reads_require_authentication(client, path):
     response = client.get(path)
@@ -45,7 +45,14 @@ def test_password_checked_once_for_browser_session(client, auth, keyboard, monke
 
     # Browsers may keep sending cached Basic credentials alongside the cookie.
     for headers in ({}, auth):
-        for path in ("/", "/static/app.js", "/api/macros", "/api/status", "/api/config/export"):
+        for path in (
+            "/",
+            "/input",
+            "/static/app.js",
+            "/api/macros",
+            "/api/status",
+            "/api/config/export",
+        ):
             response = client.get(path, headers=headers)
             assert response.status_code == 200
             assert "Set-Cookie" not in response.headers
@@ -141,6 +148,38 @@ def test_index_macros_status_and_security_headers(client, headers):
     assert [m["id"] for m in macros] == ["hello", "email", "form"]
     assert "steps" not in macros[0]
     assert client.get("/api/status", headers=headers).json["busy"] is False
+
+
+def test_input_only_page_keeps_authenticated_execution_without_settings(client, auth, keyboard):
+    response = client.get("/input", headers=auth)
+    assert response.status_code == 200
+    html = response.get_data(as_text=True)
+    assert 'class="input-only"' in html
+    assert 'class="compact-grid"' in html
+    assert 'class="toast"' in html
+    assert 'aria-live="polite"' in html
+    assert 'id="import"' not in html
+    assert 'id="file"' not in html
+    assert "<h1" not in html
+    assert 'href="/input"' in client.get("/").get_data(as_text=True)
+    token = re.search(r'name="csrf-token" content="([^"]+)"', html)[1]
+    assert client.post("/api/macros/hello/execute").status_code == 403
+    response = client.post("/api/macros/hello/execute", headers={"X-CSRF-Token": token})
+    assert response.status_code == 200
+    assert len(keyboard.reports) == len("Hello World!")
+
+
+def test_hundred_macros_preserve_json_order_and_only_expose_button_metadata(client, headers, app):
+    macros = [
+        {"id": f"macro-{i}", "label": f"定型入力 {i}", "steps": [{"type": "key", "value": "A"}]}
+        for i in reversed(range(100))
+    ]
+    app.extensions["config_manager"].import_bytes(
+        json.dumps({"version": 1, "macros": macros}).encode()
+    )
+    response = client.get("/api/macros", headers=headers)
+    assert response.status_code == 200
+    assert response.json["macros"] == [{"id": m["id"], "label": m["label"]} for m in macros]
 
 
 @pytest.mark.parametrize("path", ["/api/macros/hello/execute", "/api/config/import"])

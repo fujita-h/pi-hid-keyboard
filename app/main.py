@@ -143,6 +143,10 @@ def create_app(config=None, *, keyboard=None):
     def index():
         return render_template("index.html", csrf_token=signer.dumps(app.config["AUTH_USERNAME"]))
 
+    @app.get("/input")
+    def input_page():
+        return render_template("input.html", csrf_token=signer.dumps(app.config["AUTH_USERNAME"]))
+
     @app.get("/api/macros")
     def macros():
         # The browser only needs button metadata, not potentially sensitive text.
